@@ -1,0 +1,157 @@
+j'ai import React, { useRef, useEffect, useState } from "react";
+import { io } from "socket.io-client";
+
+const socket = io("https://call-app-backend-kqzr.onrender.com");
+
+function App() {
+  const localVideo = useRef(null);
+  const remoteVideo = useRef(null);
+  const pc = useRef(null);
+
+  const [hasPermissions, setHasPermissions] = useState(null);
+
+  useEffect(() => {
+    // Vérifier les permissions déjà données
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: "camera" }).then((result) => {
+        console.log("Permission caméra :", result.state);
+      }).catch(() => {});
+      navigator.permissions.query({ name: "microphone" }).then((result) => {
+        console.log("Permission micro :", result.state);
+      }).catch(() => {});
+    }
+
+    // Côté callee : réception d'une offre
+    socket.on("offer", async (offer) => {
+      if (!pc.current) createPeerConnection();
+
+      try {
+        console.log("Signaling state avant setRemoteDescription:", pc.current.signalingState);
+        await pc.current.setRemoteDescription(new RTCSessionDescription(offer));
+
+        const answer = await pc.current.createAnswer();
+        await pc.current.setLocalDescription(answer);
+        socket.emit("answer", answer);
+      } catch (err) {
+        console.error("Erreur lors du traitement de l'offre:", err);
+      }
+    });
+
+    // Côté caller : réception d'une answer
+    socket.on("answer", async (answer) => {
+      try {
+        if (pc.current && pc.current.signalingState === "have-local-offer") {
+          console.log("Signaling state avant setRemoteDescription(answer):", pc.current.signalingState);
+          await pc.current.setRemoteDescription(new RTCSessionDescription(answer));
+        } else {
+          console.warn("Réponse reçue dans un mauvais état :", pc.current?.signalingState);
+        }
+      } catch (err) {
+        console.error("Erreur lors de la réception de l'answer:", err);
+      }
+    });
+
+    // Candidats ICE
+    socket.on("ice-candidate", async (candidate) => {
+      try {
+        if (pc.current) {
+          await pc.current.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+      } catch (e) {
+        console.error("Erreur ICE", e);
+      }
+    });
+  }, []);
+
+  const createPeerConnection = () => {
+    pc.current = new RTCPeerConnection();
+
+    pc.current.ontrack = (event) => {
+      remoteVideo.current.srcObject = event.streams[0];
+    };
+
+    pc.current.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit("ice-candidate", event.candidate);
+      }
+    };
+  };
+
+  const startCall = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setHasPermissions(true);
+
+      localVideo.current.srcObject = stream;
+
+      if (!pc.current) createPeerConnection();
+
+      stream.getTracks().forEach((track) => pc.current.addTrack(track, stream));
+
+      // Création de l'offre
+      const offer = await pc.current.createOffer();
+      await pc.current.setLocalDescription(offer);
+      socket.emit("offer", offer);
+    } catch (err) {
+      console.error("Erreur getUserMedia:", err.name, err.message);
+      setHasPermissions(false);
+      alert("⚠️ Autorise l’accès caméra/micro dans ton navigateur !");
+    }
+  };
+
+  return (
+    <div style={{ textAlign: "center", marginTop: "2rem" }}>
+      <h1>📹 Prototype Appel Vidéo</h1>
+      <div style={{ display: "flex", justifyContent: "center", gap: "1rem" }}>
+        <video ref={localVideo} autoPlay muted playsInline style={{ width: "300px", border: "1px solid black" }} />
+        <video ref={remoteVideo} autoPlay playsInline style={{ width: "300px", border: "1px solid black" }} />
+      </div>
+      <button onClick={startCall} style={{ marginTop: "1rem", padding: "10px 20px" }}>
+        📞 Démarrer l'appel
+      </button>
+      {hasPermissions === false && (
+        <p style={{ color: "red", marginTop: "1rem" }}>
+          ❌ Caméra/Micro bloqués. Clique sur l’icône 🔒 en haut du navigateur et autorise-les.
+        </p>
+      )}
+    </div>
+  );
+}
+
+export default App;  const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const cors = require("cors");
+
+const app = express();
+app.use(cors());
+
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: { origin: "*" },
+});
+
+io.on("connection", (socket) => {
+  console.log("✅ Un utilisateur est connecté:", socket.id);
+
+  socket.on("offer", (data) => {
+    socket.broadcast.emit("offer", data);
+  });
+
+  socket.on("answer", (data) => {
+    socket.broadcast.emit("answer", data);
+  });
+
+  socket.on("ice-candidate", (data) => {
+    socket.broadcast.emit("ice-candidate", data);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("❌ Utilisateur déconnecté:", socket.id);
+  });
+});
+
+server.listen(5000, () => {
+  console.log("🚀 Serveur en écoute sur http://localhost:5000");
+});  hebrgé sur render le front est ailleurs. ça marche bien. mais je veux que ça soit vraiment pro l'utilisateur doit choisir le type d'appel(audio ou video) donc avec les icones react-feather et quand il appelle un utilisateur on doit passer aussi l'id de cet utilisateur donc on doit donner à chacun un id et si on l'appelle il doit voir les boutons accepter et refuser, si il accetpe alors l'appelle commence, je veux vraiment que ça soit profesionnel comme whatsapp parce que là, on risque d'avoir l'impression qu'on appelle tout utilisateur connecté alors qu'il faut preciser; par exemple l'utilisateur avec id 178 appelle celui qui a id 100 ou vice versa et signaler aussi si l'appelé a deja un appel en cours

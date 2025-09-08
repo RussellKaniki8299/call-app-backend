@@ -11,21 +11,18 @@ const io = new Server(server, {
   cors: { origin: "*" },
 });
 
-// Liste des utilisateurs connectés
-const users = {}; // { userId: socketId }
-const userStates = {}; // { userId: "free" | "ringing" | "in-call" }
+const users = {};       // { userId: socketId }
+const userStates = {};  // { userId: "free" | "ringing" | "in-call" }
 
 io.on("connection", (socket) => {
   console.log("✅ Un utilisateur est connecté:", socket.id);
 
-  // Enregistrer l'utilisateur
   socket.on("register", (userId) => {
     users[userId] = socket.id;
     userStates[userId] = "free";
     console.log(`👤 Utilisateur ${userId} enregistré avec socket ${socket.id}`);
   });
 
-  // Démarrer un appel
   socket.on("call-user", ({ from, to, type }) => {
     const targetSocket = users[to];
     if (!targetSocket) {
@@ -44,20 +41,18 @@ io.on("connection", (socket) => {
     io.to(targetSocket).emit("incoming-call", { from, type });
   });
 
-  // Réponse à l’appel
-  socket.on("accept-call", ({ from, to, answer }) => {
+  socket.on("accept-call", ({ from, to }) => {
     userStates[from] = "in-call";
     userStates[to] = "in-call";
-    io.to(users[to]).emit("call-accepted", { from, answer });
+    io.to(users[from]).emit("call-accepted", { from: to });
   });
 
   socket.on("reject-call", ({ from, to }) => {
     userStates[from] = "free";
     userStates[to] = "free";
-    io.to(users[to]).emit("call-rejected", { from });
+    io.to(users[from]).emit("call-rejected", { from: to });
   });
 
-  // Signaling WebRTC
   socket.on("offer", ({ to, offer }) => {
     io.to(users[to]).emit("offer", offer);
   });
@@ -70,7 +65,6 @@ io.on("connection", (socket) => {
     io.to(users[to]).emit("ice-candidate", candidate);
   });
 
-  // Déconnexion
   socket.on("disconnect", () => {
     for (let id in users) {
       if (users[id] === socket.id) {

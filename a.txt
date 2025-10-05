@@ -1,4 +1,4 @@
-j'ai import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import { io } from "socket.io-client";
 
 const socket = io("https://call-app-backend-kqzr.onrender.com");
@@ -118,7 +118,9 @@ function App() {
   );
 }
 
-export default App;  const express = require("express");
+export default App;  
+
+const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");

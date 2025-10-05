@@ -15,24 +15,28 @@ const users = {};       // { userId: socketId }
 const userStates = {};  // { userId: "free" | "ringing" | "in-call" }
 
 io.on("connection", (socket) => {
-  console.log("✅ Un utilisateur est connecté:", socket.id);
+  console.log("🔌 Nouvelle connexion:", socket.id);
 
-  // Enregistrer l'utilisateur
+  // Enregistrer un utilisateur
   socket.on("register", (userId) => {
     users[userId] = socket.id;
     userStates[userId] = "free";
-    console.log(`👤 Utilisateur ${userId} enregistré avec socket ${socket.id}`);
+    console.log(`✅ Utilisateur ${userId} enregistré avec socket ${socket.id}`);
   });
 
   // Démarrer un appel
   socket.on("call-user", ({ from, to, type }) => {
+    console.log(`📞 ${from} appelle ${to} (${type})`);
     const targetSocket = users[to];
+
     if (!targetSocket) {
+      console.log(`⚠️ Utilisateur ${to} hors ligne`);
       io.to(users[from]).emit("user-offline", { to });
       return;
     }
 
     if (userStates[to] !== "free") {
+      console.log(`🚫 Utilisateur ${to} occupé`);
       io.to(users[from]).emit("user-busy", { to });
       return;
     }
@@ -40,50 +44,61 @@ io.on("connection", (socket) => {
     userStates[from] = "ringing";
     userStates[to] = "ringing";
 
+    console.log(`📲 Envoi de "incoming-call" à ${to}`);
     io.to(targetSocket).emit("incoming-call", { from, type });
   });
 
   // Accepter un appel
   socket.on("accept-call", ({ from, to }) => {
+    // from = appelant, to = receveur
+    console.log(`✅ Appel accepté par ${to} (appelant: ${from})`);
+
     userStates[from] = "in-call";
     userStates[to] = "in-call";
-    io.to(users[from]).emit("call-accepted", { from: to });
+
+    // Envoie la confirmation à l'appelant
+    if (users[from]) {
+      io.to(users[from]).emit("call-accepted", { from: to });
+    }
   });
 
   // Refuser un appel
   socket.on("reject-call", ({ from, to }) => {
+    console.log(`❌ Appel rejeté par ${to}`);
     userStates[from] = "free";
     userStates[to] = "free";
-    io.to(users[from]).emit("call-rejected", { from: to });
+    if (users[from]) io.to(users[from]).emit("call-rejected", { from: to });
   });
 
-  // Signaling WebRTC
+  // WebRTC - Signalisation
   socket.on("offer", ({ from, to, offer }) => {
-    io.to(users[to]).emit("offer", { from, offer });
+    console.log(`📤 Offre envoyée de ${from} → ${to}`);
+    if (users[to]) io.to(users[to]).emit("offer", { from, offer });
   });
 
   socket.on("answer", ({ from, to, answer }) => {
-    io.to(users[to]).emit("answer", { from, answer });
+    console.log(`📥 Réponse envoyée de ${from} → ${to}`);
+    if (users[to]) io.to(users[to]).emit("answer", { from, answer });
   });
 
   socket.on("ice-candidate", ({ to, candidate }) => {
-    io.to(users[to]).emit("ice-candidate", candidate);
+    if (users[to]) io.to(users[to]).emit("ice-candidate", candidate);
   });
 
   // Déconnexion
   socket.on("disconnect", () => {
-    for (let id in users) {
+    for (const id in users) {
       if (users[id] === socket.id) {
-        console.log("❌ Utilisateur déconnecté:", id);
+        console.log(`🔴 Utilisateur ${id} déconnecté`);
         delete users[id];
         delete userStates[id];
+        break;
       }
     }
   });
 });
 
-// Utiliser le port fourni par Render
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`🚀 Serveur en écoute sur le port ${PORT}`);
+  console.log(`🚀 Serveur WebRTC en écoute sur le port ${PORT}`);
 });

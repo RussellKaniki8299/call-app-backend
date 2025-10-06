@@ -11,125 +11,101 @@ const io = new Server(server, {
   cors: { origin: "*" },
 });
 
-// Mapping utilisateurs
-const users = {};      // { userId: socketId }
-const userStates = {}; // { userId: "free" | "ringing" | "in-call" }
+// Mapping des utilisateurs et des rooms
+const users = {};          // { userId: socketId }
+const userRooms = {};      // { userId: roomId }
 
 io.on("connection", (socket) => {
-  console.log("🔌 Utilisateur connecté:", socket.id);
+  console.log(`✅ Nouvelle connexion: ${socket.id}`);
 
   // Enregistrement de l'utilisateur
   socket.on("register", (userId) => {
     users[userId] = socket.id;
-    userStates[userId] = "free";
-    console.log(`👤 Utilisateur ${userId} enregistré avec socket ${socket.id}`);
-    io.to(socket.id).emit("registered", { success: true, userId });
+    console.log(`👤 Utilisateur enregistré: ${userId} (socket: ${socket.id})`);
+    socket.emit("registered", { success: true, userId });
   });
 
-  // Démarrer un appel
-  socket.on("call-user", ({ from, to, type }) => {
-    console.log(`📞 Tentative d'appel de ${from} vers ${to} (type: ${type})`);
+  // Rejoindre une room pour un appel 1:1
+  socket.on("join-call", (roomId) => {
+    socket.join(roomId);
+    userRooms[socket.id] = roomId;
+    console.log(`👥 ${socket.id} a rejoint la room ${roomId}`);
+  });
 
-    // Vérifier si l'utilisateur cible est connecté
+  // Démarrer un appel (notification)
+  socket.on("call-user", ({ from, to, type }) => {
+    console.log(`📞 Appel de ${from} vers ${to} (type: ${type})`);
     if (!users[to]) {
       console.log(`❌ Utilisateur ${to} non connecté`);
-      io.to(users[from]).emit("call-error", { error: "user-offline", message: `L'utilisateur ${to} est hors ligne.` });
+      io.to(users[from]).emit("call-error", {
+        error: "user-offline",
+        message: `L'utilisateur ${to} est hors ligne.`,
+      });
       return;
     }
-
-    // Vérifier si l'utilisateur cible est disponible
-    if (userStates[to] !== "free") {
-      console.log(`⚠️ Utilisateur ${to} est occupé (état: ${userStates[to]})`);
-      io.to(users[from]).emit("call-error", { error: "user-busy", message: `L'utilisateur ${to} est occupé.` });
-      return;
-    }
-
-    // Mettre à jour les états
-    userStates[from] = "ringing";
-    userStates[to] = "ringing";
-
-    // Envoyer l'appel entrant à la cible
+    // Notifier l'utilisateur appelé
     io.to(users[to]).emit("incoming-call", { from, type });
-    console.log(`📱 Appel envoyé à ${to} (socket: ${users[to]})`);
-  });
-
-  // Accepter un appel
-  socket.on("accept-call", ({ from, to }) => {
-    console.log(`✅ Appel accepté: ${to} accepte ${from}`);
-
-    // Mettre à jour les états
-    userStates[from] = "in-call";
-    userStates[to] = "in-call";
-
-    // Notifier l'appelant
-    if (users[from]) {
-      io.to(users[from]).emit("call-accepted", { from: to });
-      console.log(`🔔 Notification d'acceptation envoyée à ${from}`);
-    }
-  });
-
-  // Refuser un appel
-  socket.on("reject-call", ({ from, to }) => {
-    console.log(`❌ Appel refusé: ${to} refuse ${from}`);
-
-    // Réinitialiser les états
-    userStates[from] = "free";
-    userStates[to] = "free";
-
-    // Notifier l'appelant
-    if (users[from]) {
-      io.to(users[from]).emit("call-rejected", { from: to });
-      console.log(`🔔 Notification de refus envoyée à ${from}`);
-    }
+    console.log(`🔔 Notification d'appel envoyée à ${to}`);
   });
 
   // Relayage des offres WebRTC
   socket.on("offer", ({ from, to, offer }) => {
-    console.log(`📩 Offre WebRTC de ${from} vers ${to}`);
-    if (users[to]) {
-      io.to(users[to]).emit("offer", { from, offer });
-      console.log(`📤 Offre relayée à ${to}`);
-    } else {
-      console.log(`❌ Utilisateur ${to} introuvable pour relayer l'offre`);
-      io.to(users[from]).emit("call-error", { error: "relay-failed", message: `Impossible de relayer l'offre à ${to}.` });
+    console.log(`📤 Offre de ${from} vers ${to}`);
+    if (!users[to]) {
+      console.log(`❌ Utilisateur ${to} introuvable`);
+      io.to(users[from]).emit("call-error", {
+        error: "user-offline",
+        message: `L'utilisateur ${to} est hors ligne.`,
+      });
+      return;
     }
+    // Envoyer l'offre à la room dédiée (si utilisée) ou directement à l'utilisateur
+    const roomId = `call-${Math.min(from, to)}-${Math.max(from, to)}`;
+    socket.to(roomId).emit("offer", { from, offer });
+    console.log(`✅ Offre relayée à ${to} dans la room ${roomId}`);
   });
 
   // Relayage des réponses WebRTC
   socket.on("answer", ({ from, to, answer }) => {
-    console.log(`📤 Réponse WebRTC de ${from} vers ${to}`);
-    if (users[to]) {
-      io.to(users[to]).emit("answer", { from, answer });
-      console.log(`📥 Réponse relayée à ${to}`);
-    } else {
-      console.log(`❌ Utilisateur ${to} introuvable pour relayer la réponse`);
-      io.to(users[from]).emit("call-error", { error: "relay-failed", message: `Impossible de relayer la réponse à ${to}.` });
+    console.log(`📥 Réponse de ${from} vers ${to}`);
+    if (!users[to]) {
+      console.log(`❌ Utilisateur ${to} introuvable`);
+      return;
     }
+    const roomId = `call-${Math.min(from, to)}-${Math.max(from, to)}`;
+    socket.to(roomId).emit("answer", { from, answer });
+    console.log(`✅ Réponse relayée à ${to} dans la room ${roomId}`);
   });
 
   // Relayage des ICE Candidates
   socket.on("ice-candidate", ({ from, to, candidate }) => {
-    if (users[to]) {
-      io.to(users[to]).emit("ice-candidate", { from, candidate });
-      console.log(`❄️ ICE Candidate relayé de ${from} vers ${to}`);
-    } else {
-      console.log(`❌ Utilisateur ${to} introuvable pour relayer le ICE Candidate`);
+    console.log(`❄️ ICE Candidate de ${from} vers ${to}`);
+    if (!users[to]) {
+      console.log(`❌ Utilisateur ${to} introuvable`);
+      return;
     }
+    const roomId = `call-${Math.min(from, to)}-${Math.max(from, to)}`;
+    socket.to(roomId).emit("ice-candidate", { from, candidate });
+    console.log(`✅ ICE Candidate relayé à ${to} dans la room ${roomId}`);
   });
 
   // Déconnexion
   socket.on("disconnect", () => {
-    for (let id in users) {
-      if (users[id] === socket.id) {
-        console.log("❌ Utilisateur déconnecté:", id);
-        delete users[id];
-        delete userStates[id];
+    console.log(`❌ Déconnexion: ${socket.id}`);
+    // Retirer l'utilisateur des mappings
+    for (let userId in users) {
+      if (users[userId] === socket.id) {
+        delete users[userId];
+        delete userRooms[socket.id];
+        console.log(`🗑️ Utilisateur ${userId} retiré`);
+        break;
       }
     }
   });
 });
 
+// Démarrer le serveur
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`🚀 Serveur en écoute sur le port ${PORT}`);
+  console.log(`🚀 Serveur Socket.IO en écoute sur le port ${PORT}`);
 });

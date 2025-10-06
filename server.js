@@ -7,7 +7,6 @@ const app = express();
 app.use(cors());
 
 const server = http.createServer(app);
-
 const io = new Server(server, {
   cors: { origin: "*" },
 });
@@ -24,67 +23,97 @@ io.on("connection", (socket) => {
     users[userId] = socket.id;
     userStates[userId] = "free";
     console.log(`👤 Utilisateur ${userId} enregistré avec socket ${socket.id}`);
+    io.to(socket.id).emit("registered", { success: true, userId });
   });
 
   // Démarrer un appel
   socket.on("call-user", ({ from, to, type }) => {
-    const targetSocket = users[to];
-    if (!targetSocket) {
-      io.to(users[from]).emit("user-offline", { to });
+    console.log(`📞 Tentative d'appel de ${from} vers ${to} (type: ${type})`);
+
+    // Vérifier si l'utilisateur cible est connecté
+    if (!users[to]) {
+      console.log(`❌ Utilisateur ${to} non connecté`);
+      io.to(users[from]).emit("call-error", { error: "user-offline", message: `L'utilisateur ${to} est hors ligne.` });
       return;
     }
 
+    // Vérifier si l'utilisateur cible est disponible
     if (userStates[to] !== "free") {
-      io.to(users[from]).emit("user-busy", { to });
+      console.log(`⚠️ Utilisateur ${to} est occupé (état: ${userStates[to]})`);
+      io.to(users[from]).emit("call-error", { error: "user-busy", message: `L'utilisateur ${to} est occupé.` });
       return;
     }
 
+    // Mettre à jour les états
     userStates[from] = "ringing";
     userStates[to] = "ringing";
 
-    io.to(targetSocket).emit("incoming-call", { from, type });
-    console.log(`📞 Appel de ${from} vers ${to} (${type})`);
+    // Envoyer l'appel entrant à la cible
+    io.to(users[to]).emit("incoming-call", { from, type });
+    console.log(`📱 Appel envoyé à ${to} (socket: ${users[to]})`);
   });
 
   // Accepter un appel
   socket.on("accept-call", ({ from, to }) => {
+    console.log(`✅ Appel accepté: ${to} accepte ${from}`);
+
+    // Mettre à jour les états
     userStates[from] = "in-call";
     userStates[to] = "in-call";
+
+    // Notifier l'appelant
     if (users[from]) {
       io.to(users[from]).emit("call-accepted", { from: to });
+      console.log(`🔔 Notification d'acceptation envoyée à ${from}`);
     }
-    console.log(`✅ Appel accepté: ${to} accepte ${from}`);
   });
 
   // Refuser un appel
   socket.on("reject-call", ({ from, to }) => {
+    console.log(`❌ Appel refusé: ${to} refuse ${from}`);
+
+    // Réinitialiser les états
     userStates[from] = "free";
     userStates[to] = "free";
+
+    // Notifier l'appelant
     if (users[from]) {
       io.to(users[from]).emit("call-rejected", { from: to });
+      console.log(`🔔 Notification de refus envoyée à ${from}`);
     }
-    console.log(`❌ Appel refusé: ${to} refuse ${from}`);
   });
 
-  // Signaling WebRTC
+  // Relayage des offres WebRTC
   socket.on("offer", ({ from, to, offer }) => {
+    console.log(`📩 Offre WebRTC de ${from} vers ${to}`);
     if (users[to]) {
       io.to(users[to]).emit("offer", { from, offer });
-      console.log(`📩 Offre envoyée de ${from} vers ${to}`);
+      console.log(`📤 Offre relayée à ${to}`);
+    } else {
+      console.log(`❌ Utilisateur ${to} introuvable pour relayer l'offre`);
+      io.to(users[from]).emit("call-error", { error: "relay-failed", message: `Impossible de relayer l'offre à ${to}.` });
     }
   });
 
+  // Relayage des réponses WebRTC
   socket.on("answer", ({ from, to, answer }) => {
+    console.log(`📤 Réponse WebRTC de ${from} vers ${to}`);
     if (users[to]) {
       io.to(users[to]).emit("answer", { from, answer });
-      console.log(`📤 Réponse envoyée de ${from} vers ${to}`);
+      console.log(`📥 Réponse relayée à ${to}`);
+    } else {
+      console.log(`❌ Utilisateur ${to} introuvable pour relayer la réponse`);
+      io.to(users[from]).emit("call-error", { error: "relay-failed", message: `Impossible de relayer la réponse à ${to}.` });
     }
   });
 
+  // Relayage des ICE Candidates
   socket.on("ice-candidate", ({ from, to, candidate }) => {
     if (users[to]) {
       io.to(users[to]).emit("ice-candidate", { from, candidate });
-      // console.log(`🌐 ICE candidate de ${from} vers ${to}`);
+      console.log(`❄️ ICE Candidate relayé de ${from} vers ${to}`);
+    } else {
+      console.log(`❌ Utilisateur ${to} introuvable pour relayer le ICE Candidate`);
     }
   });
 

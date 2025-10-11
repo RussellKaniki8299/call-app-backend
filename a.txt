@@ -1,124 +1,207 @@
 import React, { useRef, useEffect, useState } from "react";
 import { io } from "socket.io-client";
+import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Volume2 } from "react-feather";
 
 const socket = io("https://call-app-backend-kqzr.onrender.com");
 
-function App() {
-  const localVideo = useRef(null);
-  const remoteVideo = useRef(null);
-  const pc = useRef(null);
+const styles = {
+  container: { width: "100vw", height: "100vh", backgroundColor: "#121212", color: "white", display: "flex", flexDirection: "column", justifyContent: "space-between", fontFamily: "sans-serif" },
+  videoGrid: { display: "grid", gap: "10px", padding: "10px", flexGrow: 1, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" },
+  videoWrapper: { position: "relative", borderRadius: "12px", overflow: "hidden", boxShadow: "0 2px 10px rgba(0,0,0,0.5)" },
+  video: { width: "100%", height: "100%", objectFit: "cover", borderRadius: "12px" },
+  localLabel: { position: "absolute", bottom: "8px", left: "8px", backgroundColor: "rgba(0,0,0,0.5)", padding: "2px 6px", borderRadius: "6px", fontSize: "12px" },
+  controls: { position: "fixed", bottom: "20px", left: "50%", transform: "translateX(-50%)", display: "flex", gap: "20px", backgroundColor: "rgba(0,0,0,0.3)", padding: "15px 20px", borderRadius: "50px", alignItems: "center", boxShadow: "0 2px 20px rgba(0,0,0,0.5)" },
+  button: { width: "60px", height: "60px", borderRadius: "50%", border: "none", display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer", transition: "all 0.2s", fontSize: "24px" },
+  activeCall: { backgroundColor: "red", color: "white" },
+  inactiveCall: { backgroundColor: "#25D366", color: "white" },
+  toggleBtn: { backgroundColor: "#eee", color: "#333" },
+};
 
-  const [hasPermissions, setHasPermissions] = useState(null);
+function App() {
+  const [localStream, setLocalStream] = useState(null);
+  const [peers, setPeers] = useState({});
+  const [callActive, setCallActive] = useState(false);
+  const [micOn, setMicOn] = useState(true);
+  const [cameraOn, setCameraOn] = useState(true);
+
+  const localVideo = useRef();
+  const pcs = useRef({});
 
   useEffect(() => {
-    // Vérifier les permissions déjà données
-    if (navigator.permissions) {
-      navigator.permissions.query({ name: "camera" }).then((result) => {
-        console.log("Permission caméra :", result.state);
-      }).catch(() => {});
-      navigator.permissions.query({ name: "microphone" }).then((result) => {
-        console.log("Permission micro :", result.state);
-      }).catch(() => {});
-    }
-
-    // Côté callee : réception d'une offre
-    socket.on("offer", async (offer) => {
-      if (!pc.current) createPeerConnection();
-
-      try {
-        console.log("Signaling state avant setRemoteDescription:", pc.current.signalingState);
-        await pc.current.setRemoteDescription(new RTCSessionDescription(offer));
-
-        const answer = await pc.current.createAnswer();
-        await pc.current.setLocalDescription(answer);
-        socket.emit("answer", answer);
-      } catch (err) {
-        console.error("Erreur lors du traitement de l'offre:", err);
-      }
+    // Quand un nouvel utilisateur rejoint
+    socket.on("user-joined", async (userId) => {
+      if (!localStream) return;
+      const pc = createPeerConnection(userId);
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit("offer", { offer, to: userId });
     });
 
-    // Côté caller : réception d'une answer
-    socket.on("answer", async (answer) => {
-      try {
-        if (pc.current && pc.current.signalingState === "have-local-offer") {
-          console.log("Signaling state avant setRemoteDescription(answer):", pc.current.signalingState);
-          await pc.current.setRemoteDescription(new RTCSessionDescription(answer));
+    // Réception d'une offre
+    socket.on("offer", async ({ offer, from }) => {
+      if (!localStream) return;
+      const pc = createPeerConnection(from);
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("answer", { answer, to: from });
+    });
+
+    // Réception d'une answer
+    socket.on("answer", async ({ answer, from }) => {
+      const pc = pcs.current[from];
+      if (pc) {
+        if (pc.signalingState === "have-local-offer") {
+          await pc.setRemoteDescription(new RTCSessionDescription(answer));
         } else {
-          console.warn("Réponse reçue dans un mauvais état :", pc.current?.signalingState);
+          console.warn("Answer reçue mais PC n'est pas en have-local-offer:", pc.signalingState);
         }
-      } catch (err) {
-        console.error("Erreur lors de la réception de l'answer:", err);
       }
     });
 
-    // Candidats ICE
-    socket.on("ice-candidate", async (candidate) => {
-      try {
-        if (pc.current) {
-          await pc.current.addIceCandidate(new RTCIceCandidate(candidate));
-        }
-      } catch (e) {
-        console.error("Erreur ICE", e);
-      }
+    // Réception de candidats ICE
+    socket.on("ice-candidate", async ({ candidate, from }) => {
+      const pc = pcs.current[from];
+      if (pc && candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
     });
-  }, []);
 
-  const createPeerConnection = () => {
-    pc.current = new RTCPeerConnection();
+    // Un utilisateur quitte
+    socket.on("user-left", (userId) => {
+      if (pcs.current[userId]) pcs.current[userId].close();
+      setPeers(prev => {
+        const copy = { ...prev };
+        delete copy[userId];
+        return copy;
+      });
+      delete pcs.current[userId];
+    });
+  }, [localStream]);
 
-    pc.current.ontrack = (event) => {
-      remoteVideo.current.srcObject = event.streams[0];
+  // Assigner le flux local à la vidéo locale
+  useEffect(() => {
+    if (localVideo.current && localStream) {
+      localVideo.current.srcObject = localStream;
+      localVideo.current.muted = true; // mute pour ne pas s'entendre
+    }
+  }, [localStream]);
+
+  const createPeerConnection = (socketId) => {
+    const pc = new RTCPeerConnection();
+    pcs.current[socketId] = pc;
+
+    pc.ontrack = (event) => {
+      setPeers(prev => ({ ...prev, [socketId]: event.streams[0] }));
     };
 
-    pc.current.onicecandidate = (event) => {
+    pc.onicecandidate = (event) => {
       if (event.candidate) {
-        socket.emit("ice-candidate", event.candidate);
+        socket.emit("ice-candidate", { candidate: event.candidate, to: socketId });
       }
     };
+
+    return pc;
   };
 
   const startCall = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      setHasPermissions(true);
-
-      localVideo.current.srcObject = stream;
-
-      if (!pc.current) createPeerConnection();
-
-      stream.getTracks().forEach((track) => pc.current.addTrack(track, stream));
-
-      // Création de l'offre
-      const offer = await pc.current.createOffer();
-      await pc.current.setLocalDescription(offer);
-      socket.emit("offer", offer);
+      setLocalStream(stream);
+      setCallActive(true);
+      socket.emit("join-room");
     } catch (err) {
-      console.error("Erreur getUserMedia:", err.name, err.message);
-      setHasPermissions(false);
-      alert("⚠️ Autorise l’accès caméra/micro dans ton navigateur !");
+      alert("⚠️ Autorise caméra et micro !");
+      console.error(err);
     }
   };
 
+  const endCall = () => {
+    localStream?.getTracks().forEach(track => track.stop());
+    setLocalStream(null);
+    setCallActive(false);
+    Object.values(pcs.current).forEach(pc => pc.close());
+    pcs.current = {};
+    setPeers({});
+    socket.emit("leave-room");
+  };
+
+  const toggleMic = () => {
+    localStream.getAudioTracks()[0].enabled = !micOn;
+    setMicOn(!micOn);
+  };
+
+  const toggleCamera = () => {
+    localStream.getVideoTracks()[0].enabled = !cameraOn;
+    setCameraOn(!cameraOn);
+  };
+
   return (
-    <div style={{ textAlign: "center", marginTop: "2rem" }}>
-      <h1>📹 Prototype Appel Vidéo</h1>
-      <div style={{ display: "flex", justifyContent: "center", gap: "1rem" }}>
-        <video ref={localVideo} autoPlay muted playsInline style={{ width: "300px", border: "1px solid black" }} />
-        <video ref={remoteVideo} autoPlay playsInline style={{ width: "300px", border: "1px solid black" }} />
+    <div style={styles.container}>
+      <div style={styles.videoGrid}>
+        {localStream && (
+          <div style={styles.videoWrapper}>
+            <video ref={localVideo} autoPlay playsInline style={styles.video} />
+            <div style={styles.localLabel}>Vous</div>
+          </div>
+        )}
+
+        {Object.entries(peers).map(([id, stream]) => (
+          <PeerVideo key={id} stream={stream} />
+        ))}
       </div>
-      <button onClick={startCall} style={{ marginTop: "1rem", padding: "10px 20px" }}>
-        📞 Démarrer l'appel
-      </button>
-      {hasPermissions === false && (
-        <p style={{ color: "red", marginTop: "1rem" }}>
-          ❌ Caméra/Micro bloqués. Clique sur l’icône 🔒 en haut du navigateur et autorise-les.
-        </p>
-      )}
+
+      <div style={styles.controls}>
+        {callActive ? (
+          <>
+            <ControlButton onClick={endCall} style={styles.activeCall}><PhoneOff size={28} /></ControlButton>
+            <ControlButton onClick={toggleMic} style={styles.toggleBtn}>{micOn ? <Mic size={24} /> : <MicOff size={24} />}</ControlButton>
+            <ControlButton onClick={toggleCamera} style={styles.toggleBtn}>{cameraOn ? <Video size={24} /> : <VideoOff size={24} />}</ControlButton>
+            <ControlButton style={styles.toggleBtn}><Volume2 size={24} /></ControlButton>
+          </>
+        ) : (
+          <ControlButton onClick={startCall} style={styles.inactiveCall}><Phone size={28} /></ControlButton>
+        )}
+      </div>
     </div>
   );
 }
 
-export default App;  
+// Vidéo des autres utilisateurs
+function PeerVideo({ stream }) {
+  const videoRef = useRef();
+
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.muted = false;
+    }
+  }, [stream]);
+
+  return (
+    <div style={{ position: "relative", borderRadius: "12px", overflow: "hidden", boxShadow: "0 2px 10px rgba(0,0,0,0.5)" }}>
+      <video ref={videoRef} autoPlay playsInline style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "12px" }} />
+    </div>
+  );
+}
+
+// Bouton flottant avec effet hover
+function ControlButton({ children, onClick, style }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      style={{ ...style, width: "60px", height: "60px", borderRadius: "50%", display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer", transform: hover ? "scale(1.1)" : "scale(1)", transition: "all 0.2s" }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      {children}
+    </button>
+  );
+}
+
+export default App;
+
 
 const express = require("express");
 const http = require("http");
@@ -129,33 +212,39 @@ const app = express();
 app.use(cors());
 
 const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
 
-const io = new Server(server, {
-  cors: { origin: "*" },
-});
+const rooms = {}; // idRoom => [socketId]
 
 io.on("connection", (socket) => {
-  console.log("✅ Un utilisateur est connecté:", socket.id);
+  console.log("✅ Utilisateur connecté:", socket.id);
 
-  socket.on("offer", (data) => {
-    socket.broadcast.emit("offer", data);
+  socket.on("join-room", () => {
+    socket.join("main");
+    socket.to("main").emit("user-joined", socket.id);
   });
 
-  socket.on("answer", (data) => {
-    socket.broadcast.emit("answer", data);
+  socket.on("leave-room", () => {
+    socket.to("main").emit("user-left", socket.id);
+    socket.leave("main");
   });
 
-  socket.on("ice-candidate", (data) => {
-    socket.broadcast.emit("ice-candidate", data);
+  socket.on("offer", ({ offer, to }) => {
+    io.to(to).emit("offer", { offer, from: socket.id });
+  });
+
+  socket.on("answer", ({ answer, to }) => {
+    io.to(to).emit("answer", { answer, from: socket.id });
+  });
+
+  socket.on("ice-candidate", ({ candidate, to }) => {
+    io.to(to).emit("ice-candidate", { candidate, from: socket.id });
   });
 
   socket.on("disconnect", () => {
+    socket.to("main").emit("user-left", socket.id);
     console.log("❌ Utilisateur déconnecté:", socket.id);
   });
 });
 
-server.listen(5000, () => {
-  console.log("🚀 Serveur en écoute sur http://localhost:5000");
-}); 
-
- hebrgé sur render le front est ailleurs. ça marche bien. mais je veux que ça soit vraiment pro l'utilisateur doit choisir le type d'appel(audio ou video) donc avec les icones react-feather et quand il appelle un utilisateur on doit passer aussi l'id de cet utilisateur donc on doit donner à chacun un id et si on l'appelle il doit voir les boutons accepter et refuser, si il accetpe alors l'appelle commence, je veux vraiment que ça soit profesionnel comme whatsapp parce que là, on risque d'avoir l'impression qu'on appelle tout utilisateur connecté alors qu'il faut preciser; par exemple l'utilisateur avec id 178 appelle celui qui a id 100 ou vice versa et signaler aussi si l'appelé a deja un appel en cours
+server.listen(5000, () => console.log("🚀 Serveur en écoute sur http://localhost:5000"));

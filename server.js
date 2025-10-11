@@ -7,12 +7,17 @@ const cors = require("cors");
 const app = express();
 app.use(cors());
 
+// Création du serveur HTTP + Socket.io
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "*" },
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"],
+  },
 });
 
-// --- Structure mémoire ---
+// --- Mémoire temporaire pour les rooms WebRTC ---
+// Structure :
 // rooms = {
 //   roomId1: {
 //     socketId1: { prenom, nom, avatar },
@@ -21,21 +26,29 @@ const io = new Server(server, {
 // }
 const rooms = {};
 
-// --- Liste des utilisateurs connectés (pour les appels directs) ---
+// --- Liste des utilisateurs connectés ---
 // connectedUsers = { userId: socketId }
 const connectedUsers = {};
 
 io.on("connection", (socket) => {
-  console.log("✅ Utilisateur connecté:", socket.id);
+  console.log("✅ Utilisateur connecté :", socket.id);
 
-  // --- Associer le socket.id à l'utilisateur connecté ---
+  // =====================================================
+  // 🟢 ENREGISTREMENT D'UN UTILISATEUR CONNECTÉ
+  // =====================================================
   socket.on("register-user", (userId) => {
-    connectedUsers[userId] = socket.id;
-    console.log(`🔗 Utilisateur ${userId} enregistré avec socket ${socket.id}`);
+    if (userId) {
+      connectedUsers[userId] = socket.id;
+      console.log(`🔗 Utilisateur ${userId} enregistré avec socket ${socket.id}`);
+    }
   });
 
-  // --- Quand un utilisateur rejoint une room ---
+  // =====================================================
+  // 🟢 JOIN ROOM (appel groupé ou lien direct)
+  // =====================================================
   socket.on("join-room", ({ roomId, userInfo }) => {
+    if (!roomId) return;
+
     if (!rooms[roomId]) rooms[roomId] = {};
     rooms[roomId][socket.id] =
       userInfo || { prenom: "Inconnu", nom: "", avatar: "default.png" };
@@ -43,48 +56,58 @@ io.on("connection", (socket) => {
     socket.join(roomId);
     console.log(`👤 ${userInfo?.prenom || "Utilisateur"} a rejoint la room ${roomId}`);
 
-    // Informer les autres utilisateurs de la room
+    // Informer les autres utilisateurs
     socket.to(roomId).emit("user-joined", { userId: socket.id, userInfo });
 
-    // Envoyer la liste des participants déjà présents au nouveau
+    // Envoyer la liste des utilisateurs déjà présents à celui qui rejoint
     const existingUsers = Object.entries(rooms[roomId])
       .filter(([id]) => id !== socket.id)
       .map(([id, info]) => ({ userId: id, userInfo: info }));
     socket.emit("existing-users", existingUsers);
   });
 
-  // --- Quand un utilisateur quitte la room ---
+  // =====================================================
+  // 🟢 LEAVE ROOM
+  // =====================================================
   socket.on("leave-room", ({ roomId }) => {
-    if (rooms[roomId] && rooms[roomId][socket.id]) {
-      delete rooms[roomId][socket.id];
-      socket.leave(roomId);
-      socket.to(roomId).emit("user-left", socket.id);
+    if (!roomId || !rooms[roomId] || !rooms[roomId][socket.id]) return;
 
-      console.log(`❌ ${socket.id} a quitté la room ${roomId}`);
+    delete rooms[roomId][socket.id];
+    socket.leave(roomId);
+    socket.to(roomId).emit("user-left", socket.id);
 
-      if (Object.keys(rooms[roomId]).length === 0) delete rooms[roomId];
+    console.log(`❌ ${socket.id} a quitté la room ${roomId}`);
+
+    // Supprimer la room si elle est vide
+    if (Object.keys(rooms[roomId]).length === 0) {
+      delete rooms[roomId];
     }
   });
 
-  // --- Signaling WebRTC ---
+  // =====================================================
+  // 🟢 SIGNALING WEBRTC
+  // =====================================================
   socket.on("offer", ({ offer, to }) => {
-    io.to(to).emit("offer", { offer, from: socket.id });
+    if (to && offer) io.to(to).emit("offer", { offer, from: socket.id });
   });
 
   socket.on("answer", ({ answer, to }) => {
-    io.to(to).emit("answer", { answer, from: socket.id });
+    if (to && answer) io.to(to).emit("answer", { answer, from: socket.id });
   });
 
   socket.on("ice-candidate", ({ candidate, to }) => {
-    io.to(to).emit("ice-candidate", { candidate, from: socket.id });
+    if (to && candidate)
+      io.to(to).emit("ice-candidate", { candidate, from: socket.id });
   });
 
   // =====================================================
   // 🔹🔹 GESTION DES APPELS ENTRE AMIS 🔹🔹
   // =====================================================
 
-  // --- Quand un utilisateur A appelle un ami B ---
+  // 🟢 L'appelant initie l'appel
   socket.on("call-user", ({ fromUser, toUser, callType, roomId }) => {
+    if (!fromUser || !toUser || !roomId) return;
+
     const targetSocket = connectedUsers[toUser];
     if (targetSocket) {
       io.to(targetSocket).emit("incoming-call", {
@@ -98,38 +121,38 @@ io.on("connection", (socket) => {
     }
   });
 
-  // --- Quand un ami accepte l’appel ---
-  socket.on("accept-call", ({ fromUser, toUser, roomId }) => {
-    const callerSocket = connectedUsers[fromUser];
+  // 🟢 L'ami accepte l'appel
+  socket.on("accept-call", ({ fromUserId, toUserId, roomId }) => {
+    const callerSocket = connectedUsers[fromUserId];
     if (callerSocket) {
       io.to(callerSocket).emit("call-accepted", { roomId });
-      console.log(`✅ Appel accepté par ${toUser}`);
+      console.log(`✅ Appel accepté par ${toUserId}`);
     }
   });
 
-  // --- Quand un ami rejette l’appel ---
-  socket.on("reject-call", ({ fromUser, toUser }) => {
-    const callerSocket = connectedUsers[fromUser];
+  // 🟢 L'ami rejette l'appel
+  socket.on("reject-call", ({ fromUserId, toUserId }) => {
+    const callerSocket = connectedUsers[fromUserId];
     if (callerSocket) {
-      io.to(callerSocket).emit("call-rejected", { toUser });
-      console.log(`❌ Appel rejeté par ${toUser}`);
+      io.to(callerSocket).emit("call-rejected", { toUserId });
+      console.log(`❌ Appel rejeté par ${toUserId}`);
     }
   });
 
-  // --- Quand l'appelant annule avant réponse ---
-  socket.on("cancel-call", ({ fromUser, toUser }) => {
-    const targetSocket = connectedUsers[toUser];
+  // 🟢 L'appelant annule avant réponse
+  socket.on("cancel-call", ({ fromUserId, toUserId }) => {
+    const targetSocket = connectedUsers[toUserId];
     if (targetSocket) {
-      io.to(targetSocket).emit("call-cancelled", { fromUser });
-      console.log(`🚫 Appel annulé par ${fromUser}`);
+      io.to(targetSocket).emit("call-cancelled", { fromUserId });
+      console.log(`🚫 Appel annulé par ${fromUserId}`);
     }
   });
 
   // =====================================================
-
-  // --- Déconnexion ---
+  // 🟢 DÉCONNEXION
+  // =====================================================
   socket.on("disconnect", () => {
-    console.log("❌ Utilisateur déconnecté:", socket.id);
+    console.log("❌ Utilisateur déconnecté :", socket.id);
 
     // Retirer des rooms
     for (const roomId in rooms) {
@@ -137,6 +160,7 @@ io.on("connection", (socket) => {
         const userInfo = rooms[roomId][socket.id];
         delete rooms[roomId][socket.id];
         socket.to(roomId).emit("user-left", socket.id);
+        console.log(`🚪 ${userInfo?.prenom || "Utilisateur"} a quitté la room ${roomId}`);
 
         if (Object.keys(rooms[roomId]).length === 0) delete rooms[roomId];
       }
@@ -153,6 +177,10 @@ io.on("connection", (socket) => {
   });
 });
 
-server.listen(5000, () => {
-  console.log("🚀 Serveur multi-room + appels directs sur http://localhost:5000");
+// =====================================================
+// 🟢 LANCEMENT DU SERVEUR
+// =====================================================
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`🚀 Serveur Socket.io en écoute sur http://localhost:${PORT}`);
 });

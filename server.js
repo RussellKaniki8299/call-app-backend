@@ -12,33 +12,51 @@ const io = new Server(server, {
   cors: { origin: "*" },
 });
 
-// Rooms en mémoire
-const rooms = {}; // { roomId: [socketId1, socketId2, ...] }
+// --- Structure mémoire ---
+// rooms = {
+//   roomId1: {
+//     socketId1: { prenom, nom, avatar },
+//     socketId2: { prenom, nom, avatar },
+//   },
+// }
+const rooms = {};
 
 io.on("connection", (socket) => {
   console.log("✅ Utilisateur connecté:", socket.id);
 
-  // Rejoindre une room
-  socket.on("join-room", ({ roomId }) => {
-    if (!rooms[roomId]) rooms[roomId] = [];
-    rooms[roomId].push(socket.id);
-    socket.join(roomId);
-    console.log(`Utilisateur ${socket.id} a rejoint la room ${roomId}`);
+  // --- Quand un utilisateur rejoint une room ---
+  socket.on("join-room", ({ roomId, userInfo }) => {
+    if (!rooms[roomId]) rooms[roomId] = {};
+    rooms[roomId][socket.id] = userInfo || { prenom: "Inconnu", nom: "", avatar: "default.png" };
 
-    // Informer les autres participants
-    socket.to(roomId).emit("user-joined", socket.id);
+    socket.join(roomId);
+    console.log(`👤 ${userInfo?.prenom || "Utilisateur"} a rejoint la room ${roomId}`);
+
+    // Informer les autres utilisateurs de la room
+    socket.to(roomId).emit("user-joined", { userId: socket.id, userInfo });
+
+    // Envoyer la liste des participants déjà présents au nouveau
+    const existingUsers = Object.entries(rooms[roomId])
+      .filter(([id]) => id !== socket.id)
+      .map(([id, info]) => ({ userId: id, userInfo: info }));
+    socket.emit("existing-users", existingUsers);
   });
 
-  // Quitter une room
+  // --- Quand un utilisateur quitte la room manuellement ---
   socket.on("leave-room", ({ roomId }) => {
-    if (rooms[roomId]) {
-      rooms[roomId] = rooms[roomId].filter(id => id !== socket.id);
+    if (rooms[roomId] && rooms[roomId][socket.id]) {
+      delete rooms[roomId][socket.id];
+      socket.leave(roomId);
       socket.to(roomId).emit("user-left", socket.id);
-      if (rooms[roomId].length === 0) delete rooms[roomId];
+
+      console.log(`❌ ${socket.id} a quitté la room ${roomId}`);
+
+      // Supprimer la room si vide
+      if (Object.keys(rooms[roomId]).length === 0) delete rooms[roomId];
     }
   });
 
-  // Signaling WebRTC
+  // --- Signaling WebRTC ---
   socket.on("offer", ({ offer, to }) => {
     io.to(to).emit("offer", { offer, from: socket.id });
   });
@@ -51,13 +69,21 @@ io.on("connection", (socket) => {
     io.to(to).emit("ice-candidate", { candidate, from: socket.id });
   });
 
-  // Déconnexion
+  // --- Déconnexion ---
   socket.on("disconnect", () => {
     console.log("❌ Utilisateur déconnecté:", socket.id);
+
     for (const roomId in rooms) {
-      rooms[roomId] = rooms[roomId].filter(id => id !== socket.id);
-      socket.to(roomId).emit("user-left", socket.id);
-      if (rooms[roomId].length === 0) delete rooms[roomId];
+      if (rooms[roomId][socket.id]) {
+        const userInfo = rooms[roomId][socket.id];
+        delete rooms[roomId][socket.id];
+        socket.to(roomId).emit("user-left", socket.id);
+
+        console.log(`🚪 ${userInfo?.prenom || "Utilisateur"} a quitté la room ${roomId}`);
+
+        // Supprimer la room si vide
+        if (Object.keys(rooms[roomId]).length === 0) delete rooms[roomId];
+      }
     }
   });
 });

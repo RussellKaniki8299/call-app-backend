@@ -53,13 +53,14 @@ io.on("connection", (socket) => {
   // ==========================================================
   // 🔹 Acceptation d’un appel
   // ==========================================================
-  socket.on("accept-call", ({ fromUserId, toUserId, roomId }) => {
+  socket.on("accept-call", ({ fromUserId, toUserId, roomId, callType }) => {
     const callerSocket = users[fromUserId];
     if (callerSocket) {
-      io.to(callerSocket).emit("call-accepted", { roomId });
-      console.log(`✅ Appel accepté par ${toUserId} → room ${roomId}`);
+      io.to(callerSocket).emit("call-accepted", { roomId, callType }); // ✅ on renvoie aussi le callType
+      console.log(`✅ Appel ${callType} accepté par ${toUserId} → room ${roomId}`);
     }
   });
+
 
   // ==========================================================
   // 🔹 Rejet d’un appel

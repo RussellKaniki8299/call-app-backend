@@ -1,3 +1,3 @@
 git add .
-git commit -m "Correction serveur WebRTC / avec Live"
+git commit -m "Correction serveur WebRTC / avec Live & Chat"
 git push origin main

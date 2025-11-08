@@ -1,4 +1,3 @@
-// server.js
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -25,7 +24,7 @@ const users = {}; // userId -> socketId
 const rooms = {}; // roomId -> { socketId: userInfo }
 
 io.on("connection", (socket) => {
-  console.log(`✅ Utilisateur connecté : ${socket.id}`);
+  console.log(` Utilisateur connecté : ${socket.id}`);
 
   // --- Handlers modulaires ---
   registerCallHandlers(io, socket, users);
@@ -35,11 +34,11 @@ io.on("connection", (socket) => {
 
   // --- Déconnexion ---
   socket.on("disconnect", () => {
-    console.log(`❌ Déconnexion : ${socket.id}`);
+    console.log(` Déconnexion : ${socket.id}`);
     for (const userId in users) {
       if (users[userId] === socket.id) {
         delete users[userId];
-        console.log(`🟥 Utilisateur ${userId} supprimé du registre`);
+        console.log(` Utilisateur ${userId} supprimé du registre`);
       }
     }
 
@@ -55,5 +54,5 @@ io.on("connection", (socket) => {
 });
 
 server.listen(5000, () => {
-  console.log("🚀 Serveur Socket.IO prêt sur http://localhost:5000");
+  console.log(" Serveur Socket.IO prêt sur http://localhost:5000");
 });

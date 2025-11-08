@@ -23,6 +23,11 @@ const io = new Server(server, { cors: { origin: "*" } });
 const users = {}; // userId -> socketId
 const rooms = {}; // roomId -> { socketId: userInfo }
 
+// server.js
+app.get("/", (req, res) => {
+  res.send("Backend Socket.IO en ligne !");
+});
+
 io.on("connection", (socket) => {
   console.log(` Utilisateur connecté : ${socket.id}`);
 

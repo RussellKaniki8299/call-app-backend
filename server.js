@@ -40,7 +40,7 @@ io.on("connection", (socket) => {
 
     // Appel API Laravel pour mettre en ligne
     try {
-      await axios.post("https://api.rudless.com/api/surho/en-ligne/", {
+      await axios.post("https://api.rudless.com/api/surho/update/en-ligne", {
         user_id: userId,
       });
       console.log(`User ${userId} marqué en ligne`);
@@ -80,7 +80,7 @@ io.on("connection", (socket) => {
     // Met à jour l'état hors ligne
     if (disconnectedUserId) {
       try {
-        await axios.post("https://api.rudless.com/api/surho/hors-ligne/", {
+        await axios.post("https://api.rudless.com/api/surho/update/hors-ligne", {
           user_id: disconnectedUserId,
         });
         console.log(`User ${disconnectedUserId} marqué hors ligne`);

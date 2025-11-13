@@ -19,6 +19,7 @@ module.exports = function registerChatHandlers(io, socket, users) {
       const payloadForSender = {
         msg_id: msg_id || Math.random().toString(),
         sender: "Vous",
+        senderId: fromUserId,
         recipient: toUserId,
         content: message || "",
         fichiers: fichiers || [],
@@ -95,6 +96,7 @@ module.exports = function registerChatHandlers(io, socket, users) {
       const payloadForSender = {
         msg_id: msg_id || Math.random().toString(),
         sender: "Vous",
+        senderId: fromUserId,
         recipient: toUserId,
         fichier: file,
         fileName,

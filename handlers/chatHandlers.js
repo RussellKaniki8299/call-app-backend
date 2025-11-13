@@ -10,17 +10,21 @@ module.exports = function registerChatHandlers(io, socket, users) {
     console.log(`[Chat] ${socket.id} rejoint la room user ${userId}`);
   });
 
-  // --- Message privé texte ou fichiers
-  socket.on("send-private-message", ({ toUserId, fromUserId, message, fichiers }) => {
+  // --- Message privé texte
+  socket.on("send-private-message", ({ toUserId, fromUserId, message, fichiers, avatar, msg_id, preview, reply_to }) => {
     if (!toUserId || !fromUserId) return;
 
     const payload = {
+      msg_id: msg_id || Math.random().toString(),
       sender: fromUserId,
       recipient: toUserId,
       content: message || "",
       fichiers: fichiers || [],
       time: new Date().toISOString(),
-      lu: 0, // non lu pour destinataire
+      lu: 0,
+      avatar: avatar || "",
+      preview: preview || false,
+      reply_to: reply_to || 0,
     };
 
     console.log(`[Serveur] Message privé reçu:`, payload);
@@ -30,20 +34,21 @@ module.exports = function registerChatHandlers(io, socket, users) {
     io.to(fromUserId.toString()).emit("receive-private-message", payload);
 
     // Mise à jour liste correspondants
+    const lastMessagePreview = message || (fichiers?.length ? `[fichier: ${fichiers.map(f => f.name || f.fileName).join(", ")}]` : "");
     io.to(toUserId.toString()).emit("update-correspondant-list", {
       userId: fromUserId,
-      lastMessage: message || "[fichier]",
+      lastMessage: lastMessagePreview,
       time: payload.time,
       lu: 0,
     });
     io.to(fromUserId.toString()).emit("update-correspondant-list", {
       userId: toUserId,
-      lastMessage: message || "[fichier]",
+      lastMessage: lastMessagePreview,
       time: payload.time,
       lu: 1,
     });
 
-    console.log(`[Chat privé] ${fromUserId} → ${toUserId} : ${message || fichiers?.map(f => f.extension).join(", ")}`);
+    console.log(`[Chat privé] ${fromUserId} → ${toUserId} : ${lastMessagePreview}`);
   });
 
   // --- Statut "écrit..." (typing)
@@ -72,10 +77,11 @@ module.exports = function registerChatHandlers(io, socket, users) {
   });
 
   // --- Envoi de fichiers directs (binaire ou base64)
-  socket.on("send-file", ({ toUserId, fromUserId, file, fileName, mimeType }) => {
+  socket.on("send-file", ({ toUserId, fromUserId, file, fileName, mimeType, avatar, msg_id, preview, reply_to }) => {
     if (!toUserId || !fromUserId || !file) return;
 
     const payload = {
+      msg_id: msg_id || Math.random().toString(),
       sender: fromUserId,
       recipient: toUserId,
       fichier: file,
@@ -83,21 +89,26 @@ module.exports = function registerChatHandlers(io, socket, users) {
       mimeType,
       time: new Date().toISOString(),
       lu: 0,
+      avatar: avatar || "",
+      preview: preview || false,
+      reply_to: reply_to || 0,
+      content: "",
     };
 
     io.to(toUserId.toString()).emit("receive-file", payload);
     io.to(fromUserId.toString()).emit("receive-file", payload);
 
+    const lastMessagePreview = `[fichier: ${fileName}]`;
     io.to(toUserId.toString()).emit("update-correspondant-list", {
       userId: fromUserId,
-      lastMessage: `[fichier: ${fileName}]`,
+      lastMessage: lastMessagePreview,
       time: payload.time,
       lu: 0,
     });
 
     io.to(fromUserId.toString()).emit("update-correspondant-list", {
       userId: toUserId,
-      lastMessage: `[fichier: ${fileName}]`,
+      lastMessage: lastMessagePreview,
       time: payload.time,
       lu: 1,
     });

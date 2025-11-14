@@ -1,85 +1,117 @@
 /**
- * Gestion des événements de chat (privé, public, fichiers, etc.)
+ * Gestion complète des événements de chat (privé, public, fichiers, etc.)
  */
 module.exports = function registerChatHandlers(io, socket, users) {
-  // --- Rejoindre sa "room personnelle"
+
+  // --- Rejoindre sa room utilisateur ---
   socket.on("join-user", (userId) => {
     if (!userId) return;
-    socket.join(userId.toString());
-    users[userId] = socket.id;
-    console.log(`[Chat] ${socket.id} rejoint la room user ${userId}`);
+    const room = userId.toString();
+
+    socket.join(room);
+    users[userId] = users[userId] || [];
+    users[userId].push(socket.id);
+
+    console.log(`[Chat] Socket ${socket.id} rejoint la room utilisateur ${room}`);
   });
 
-  // --- Message privé texte
-  socket.on(
-    "send-private-message",
-    ({ toUserId, fromUserId, message, fichiers, time, avatar, msg_id, preview, reply_to }) => {
-      if (!toUserId || !fromUserId) return;
+  // --- Envoi d'un message privé ---
+  socket.on("send-private-message", (data) => {
 
-      const payloadForSender = {
-        msg_id: msg_id || Math.random().toString(),
-        sender: "Vous",
-        senderId: fromUserId,
-        recipient: toUserId,
-        content: message || "",
-        fichiers: fichiers || [],
-        time: time || new Date().toLocaleTimeString("fr-FR", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        }),
-        lu: 0,
-        avatar: avatar || "",
-        preview: preview || false,
-        reply_to: reply_to || 0,
-      };
+    const {
+      toUserId,
+      fromUserId,
+      message,
+      fichiers,
+      time,
+      avatar,
+      msg_id,
+      preview,
+      reply_to
+    } = data;
 
-      const payloadForRecipient = {
-        ...payloadForSender,
-        sender: "Lui/Elle",
-      };
+    if (!toUserId || !fromUserId) return;
 
-      console.log(`[Serveur] Message privé reçu:`, payloadForSender);
-
-      // Emission aux deux utilisateurs
-      io.to(toUserId.toString()).emit("receive-private-message", payloadForRecipient);
-      io.to(fromUserId.toString()).emit("receive-private-message", payloadForSender);
-
-      // Mise à jour liste correspondants
-      const lastMessagePreview =
-        message || (fichiers?.length ? `[fichier: ${fichiers.map((f) => f.name || f.fileName).join(", ")}]` : "");
-
-      io.to(toUserId.toString()).emit("update-correspondant-list", {
-        userId: fromUserId,
-        lastMessage: lastMessagePreview,
-        time: payloadForRecipient.time,
-        lu: 0,
-      });
-      io.to(fromUserId.toString()).emit("update-correspondant-list", {
-        userId: toUserId,
-        lastMessage: lastMessagePreview,
-        time: payloadForSender.time,
-        lu: 1,
+    const finalTime =
+      time ||
+      new Date().toLocaleTimeString("fr-FR", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
       });
 
-      console.log(`[Chat privé] ${fromUserId} → ${toUserId} : ${lastMessagePreview}`);
-    }
-  );
+    const buildPayload = (senderLabel) => ({
+      msg_id: msg_id || Math.random().toString(),
+      sender: senderLabel,
+      senderId: fromUserId,
+      recipient: toUserId,
+      content: message || "",
+      fichiers: fichiers || [],
+      time: finalTime,
+      lu: 0,
+      avatar: avatar || "",
+      preview: preview || false,
+      reply_to: reply_to || 0
+    });
 
-  // --- Statut "écrit..." (typing)
+    const senderPayload = buildPayload("Vous");
+    const recipientPayload = buildPayload("Lui/Elle");
+
+    console.log(`[Serveur] MP ${fromUserId} → ${toUserId}`, senderPayload);
+
+    // --- Toujours renvoyer au SENDER directement ---
+    socket.emit("receive-private-message", senderPayload);
+
+    // --- Multi-device + room sender ---
+    io.to(fromUserId.toString()).emit("receive-private-message", senderPayload);
+
+    // --- Receiver si connecté (room) ---
+    io.to(toUserId.toString()).emit("receive-private-message", recipientPayload);
+
+    // --- Mise à jour des correspondants ---
+    const lastMessagePreview =
+      message ||
+      (fichiers?.length
+        ? `[fichier: ${fichiers.map((f) => f.name || f.fileName).join(", ")}]`
+        : "");
+
+    io.to(toUserId.toString()).emit("update-correspondant-list", {
+      userId: fromUserId,
+      lastMessage: lastMessagePreview,
+      time: finalTime,
+      lu: 0
+    });
+
+    io.to(fromUserId.toString()).emit("update-correspondant-list", {
+      userId: toUserId,
+      lastMessage: lastMessagePreview,
+      time: finalTime,
+      lu: 1
+    });
+  });
+
+  // --- Statut "écrit..." ---
   socket.on("typing", ({ toUserId, fromUserId }) => {
     if (!toUserId || !fromUserId) return;
+
     io.to(toUserId.toString()).emit("user-typing", { fromUserId });
-    io.to(toUserId.toString()).emit("update-correspondant-list", { userId: fromUserId, typing: true });
+    io.to(toUserId.toString()).emit("update-correspondant-list", {
+      userId: fromUserId,
+      typing: true
+    });
   });
 
   socket.on("stop-typing", ({ toUserId, fromUserId }) => {
     if (!toUserId || !fromUserId) return;
+
     io.to(toUserId.toString()).emit("user-stop-typing", { fromUserId });
-    io.to(toUserId.toString()).emit("update-correspondant-list", { userId: fromUserId, typing: false });
+    io.to(toUserId.toString()).emit("update-correspondant-list", {
+      userId: fromUserId,
+      typing: false
+    });
   });
 
-  // --- Lecture des messages
+  // --- Marquer messages lus ---
   socket.on("mark-messages-read", ({ fromUserId, toUserId }) => {
     if (!fromUserId || !toUserId) return;
 
@@ -87,78 +119,93 @@ module.exports = function registerChatHandlers(io, socket, users) {
 
     io.to(toUserId.toString()).emit("messages-read", { byUserId: fromUserId });
 
-    io.to(toUserId.toString()).emit("update-correspondant-list", { userId: fromUserId, lu: 1 });
-    io.to(fromUserId.toString()).emit("update-correspondant-list", { userId: toUserId, lu: 1 });
+    io.to(toUserId.toString()).emit("update-correspondant-list", {
+      userId: fromUserId,
+      lu: 1
+    });
+
+    io.to(fromUserId.toString()).emit("update-correspondant-list", {
+      userId: toUserId,
+      lu: 1
+    });
   });
 
-  // --- Envoi de fichiers directs (binaire ou base64)
-  socket.on(
-    "send-file",
-    ({ toUserId, fromUserId, file, fileName, mimeType, avatar, msg_id, preview, reply_to }) => {
-      if (!toUserId || !fromUserId || !file) return;
+  // --- Envoi fichier ---
+  socket.on("send-file", (data) => {
+    const { toUserId, fromUserId, file, fileName, mimeType, avatar, msg_id, preview, reply_to } = data;
 
-      const payloadForSender = {
-        msg_id: msg_id || Math.random().toString(),
-        sender: "Vous",
-        senderId: fromUserId,
-        recipient: toUserId,
-        fichier: file,
-        fileName,
-        mimeType,
-        time: new Date().toLocaleTimeString("fr-FR", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        }),
-        lu: 0,
-        avatar: avatar || "",
-        preview: preview || false,
-        reply_to: reply_to || 0,
-        content: "",
-      };
+    if (!toUserId || !fromUserId || !file) return;
 
-      const payloadForRecipient = { ...payloadForSender, sender: "Lui/Elle" };
+    const finalTime = new Date().toLocaleTimeString("fr-FR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    });
 
-      io.to(toUserId.toString()).emit("receive-file", payloadForRecipient);
-      io.to(fromUserId.toString()).emit("receive-file", payloadForSender);
+    const buildPayload = (senderLabel) => ({
+      msg_id: msg_id || Math.random().toString(),
+      sender: senderLabel,
+      senderId: fromUserId,
+      recipient: toUserId,
+      fichier: file,
+      fileName,
+      mimeType,
+      time: finalTime,
+      lu: 0,
+      avatar: avatar || "",
+      preview: preview || false,
+      reply_to: reply_to || 0,
+      content: ""
+    });
 
-      const lastMessagePreview = `[fichier: ${fileName}]`;
-      io.to(toUserId.toString()).emit("update-correspondant-list", {
-        userId: fromUserId,
-        lastMessage: lastMessagePreview,
-        time: payloadForRecipient.time,
-        lu: 0,
-      });
+    const senderPayload = buildPayload("Vous");
+    const recipientPayload = buildPayload("Lui/Elle");
 
-      io.to(fromUserId.toString()).emit("update-correspondant-list", {
-        userId: toUserId,
-        lastMessage: lastMessagePreview,
-        time: payloadForSender.time,
-        lu: 1,
-      });
+    // sender direct
+    socket.emit("receive-file", senderPayload);
+    // sender room (multi-device)
+    io.to(fromUserId.toString()).emit("receive-file", senderPayload);
+    // receiver
+    io.to(toUserId.toString()).emit("receive-file", recipientPayload);
 
-      console.log(`[Chat fichier] ${fromUserId} → ${toUserId} : ${fileName}`);
-    }
-  );
+    // update lists
+    const lastMessagePreview = `[fichier: ${fileName}]`;
 
-  // --- Broadcast global
+    io.to(toUserId.toString()).emit("update-correspondant-list", {
+      userId: fromUserId,
+      lastMessage: lastMessagePreview,
+      time: finalTime,
+      lu: 0
+    });
+
+    io.to(fromUserId.toString()).emit("update-correspondant-list", {
+      userId: toUserId,
+      lastMessage: lastMessagePreview,
+      time: finalTime,
+      lu: 1
+    });
+
+    console.log(`[Chat fichier] ${fromUserId} → ${toUserId} : ${fileName}`);
+  });
+
+  // --- Broadcast global ---
   socket.on("broadcast-message", (message) => {
     const payload = { content: message, time: new Date().toISOString() };
     io.emit("receive-broadcast-message", payload);
     console.log(`[Broadcast] ${message}`);
   });
 
-  // --- Chat public fallback
+  // --- Chat public fallback ---
   socket.on("new-message", (msg) => {
     socket.broadcast.emit("new-message", msg);
   });
 
-  // --- Commentaires publics
+  // --- Commentaires publics ---
   socket.on("new-comment", (comment) => {
     io.emit("new-comment", comment);
   });
 
-  // --- Suppression / édition
+  // --- Suppression / édition ---
   socket.on("delete-message", (messageId) => {
     io.emit("delete-message", messageId);
     console.log(`[Suppression message] ID: ${messageId}`);
@@ -168,4 +215,5 @@ module.exports = function registerChatHandlers(io, socket, users) {
     io.emit("edit-message", updatedMessage);
     console.log(`[Édition message]`, updatedMessage);
   });
+
 };

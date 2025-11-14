@@ -13,7 +13,7 @@ module.exports = function registerChatHandlers(io, socket, users) {
   // --- Message privé texte
   socket.on(
     "send-private-message",
-    ({ toUserId, fromUserId, message, fichiers, avatar, msg_id, preview, reply_to }) => {
+    ({ toUserId, fromUserId, message, fichiers, time, avatar, msg_id, preview, reply_to }) => {
       if (!toUserId || !fromUserId) return;
 
       const payloadForSender = {
@@ -23,7 +23,11 @@ module.exports = function registerChatHandlers(io, socket, users) {
         recipient: toUserId,
         content: message || "",
         fichiers: fichiers || [],
-        time: new Date().toISOString(),
+        time: time || new Date().toLocaleTimeString("fr-FR", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }),
         lu: 0,
         avatar: avatar || "",
         preview: preview || false,
@@ -101,7 +105,11 @@ module.exports = function registerChatHandlers(io, socket, users) {
         fichier: file,
         fileName,
         mimeType,
-        time: new Date().toISOString(),
+        time: new Date().toLocaleTimeString("fr-FR", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }),
         lu: 0,
         avatar: avatar || "",
         preview: preview || false,

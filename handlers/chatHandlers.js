@@ -10,10 +10,21 @@ module.exports = function registerChatHandlers(io, socket, users) {
     console.log(`[Chat] ${socket.id} rejoint la room user ${userId}`);
   });
 
-  // --- Message privé texte
+  // --- Message privé texte ou audio
   socket.on(
     "send-private-message",
-    ({ toUserId, fromUserId, message, fichiers, time, avatar, msg_id, preview, reply_to }) => {
+    ({
+      toUserId,
+      fromUserId,
+      message,
+      fichiers,
+      msg_audio,
+      time,
+      avatar,
+      msg_id,
+      preview,
+      reply_to,
+    }) => {
       if (!toUserId || !fromUserId) return;
 
       const payloadForSender = {
@@ -22,7 +33,8 @@ module.exports = function registerChatHandlers(io, socket, users) {
         senderId: fromUserId,
         recipient: toUserId,
         content: message || "",
-        fichiers: fichiers || [],
+        msg_audio: msg_audio || "",        
+        fichiers: fichiers || [],          
         time: time || new Date().toLocaleTimeString("fr-FR", {
           hour: "2-digit",
           minute: "2-digit",
@@ -41,13 +53,17 @@ module.exports = function registerChatHandlers(io, socket, users) {
 
       console.log(`[Serveur] Message privé reçu:`, payloadForSender);
 
-      // Emission aux deux utilisateurs
+      // --- Emission aux deux utilisateurs
       io.to(toUserId.toString()).emit("receive-private-message", payloadForRecipient);
       io.to(fromUserId.toString()).emit("receive-private-message", payloadForSender);
 
-      // Mise à jour liste correspondants
+      // --- Mise à jour liste correspondants
       const lastMessagePreview =
-        message || (fichiers?.length ? `[fichier: ${fichiers.map((f) => f.name || f.fileName).join(", ")}]` : "");
+        message ||
+        (msg_audio ? "[message audio]" : "") ||
+        (fichiers?.length
+          ? `[fichier: ${fichiers.map((f) => f.name || f.fileName).join(", ")}]`
+          : "");
 
       io.to(toUserId.toString()).emit("update-correspondant-list", {
         userId: fromUserId,
@@ -55,6 +71,7 @@ module.exports = function registerChatHandlers(io, socket, users) {
         time: payloadForRecipient.time,
         lu: 0,
       });
+
       io.to(fromUserId.toString()).emit("update-correspondant-list", {
         userId: toUserId,
         lastMessage: lastMessagePreview,

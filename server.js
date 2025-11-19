@@ -10,6 +10,7 @@ const {
   registerRoomHandlers,
   registerChatHandlers,
   registerNotificationHandlers,
+  registerFriendsHandlers,
 } = require("./handlers/utils");
 
 const app = express();
@@ -23,7 +24,6 @@ const io = new Server(server, { cors: { origin: "*" } });
 // Stockage en mémoire
 const users = {}; // userId -> socketId
 const rooms = {}; // roomId -> { socketId: userInfo }
-
 
 const SECRET_KEY = process.env.NODE_NOTIFY_KEY || "rud@@##less";
 
@@ -43,9 +43,9 @@ app.post("/notify", (req, res) => {
   const socketId = users[toUserId];
   if (socketId) {
     io.to(socketId).emit("new-notification", { type, payload });
-    console.log(`Notification envoyée à user ${toUserId}`);
+    console.log(`[Notification] Envoyée à user ${toUserId} | type: ${type}`);
   } else {
-    console.log(`User ${toUserId} non connecté, notification non envoyée`);
+    console.log(`[Notification] User ${toUserId} non connecté`);
   }
 
   return res.json({ status: "ok" });
@@ -115,6 +115,7 @@ io.on("connection", (socket) => {
   registerRoomHandlers(io, socket, rooms, users);
   registerChatHandlers(io, socket, users);
   registerNotificationHandlers(io, socket, users);
+  registerFriendsHandlers(io, socket, users);
 });
 
 // Render expose souvent le port via process.env.PORT

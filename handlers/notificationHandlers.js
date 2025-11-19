@@ -1,13 +1,53 @@
 module.exports = function registerNotificationHandlers(io, socket, users) {
 
-  // -------------------- Notifications classiques --------------------
-  socket.on("new-notification", ({ toUserId, type, payload }) => {
+  socket.on("internal-notify", ({ toUserId, type, payload, count }) => {
     const socketId = users[toUserId];
+
+    console.log("📨 Notification traitée dans le handler :", {
+      toUserId,
+      type,
+      payload,
+      count
+    });
+
     if (socketId) {
-      io.to(socketId).emit("new-notification", { type, payload });
-      console.log(`[Notification] Envoyée à user ${toUserId} | type: ${type}`);
+      io.to(socketId).emit("new-notification", {
+        type,
+        payload,
+        count,
+      });
+
+      console.log(
+        `[Notification] ➜ envoyée à user ${toUserId} | type: ${type} | count: ${count}`
+      );
     } else {
-      console.log(`[Notification] User ${toUserId} non connecté`);
+      console.log(`[Notification] user ${toUserId} non connecté`);
+    }
+  });
+
+
+  socket.on("new-notification", ({ toUserId, type, payload, count }) => {
+    const socketId = users[toUserId];
+
+    console.log("📨 Notification reçue du FRONT :", {
+      toUserId,
+      type,
+      payload,
+      count
+    });
+
+    if (socketId) {
+      io.to(socketId).emit("new-notification", {
+        type,
+        payload,
+        count,
+      });
+
+      console.log(
+        `[Notification FRONT] ➜ envoyée à user ${toUserId} | type: ${type} | count: ${count}`
+      );
+    } else {
+      console.log(`[Notification FRONT] user ${toUserId} non connecté`);
     }
   });
 

@@ -33,23 +33,29 @@ app.get("/", (req, res) => {
 });
 
 // Endpoint pour recevoir les notifications depuis Laravel
+
 app.post("/notify", (req, res) => {
   const key = req.query.key;
   if (key !== SECRET_KEY) return res.status(403).json({ error: "Forbidden" });
 
-  const { toUserId, type, payload } = req.body;
-  if (!toUserId) return res.status(400).json({ error: "toUserId manquant" });
+  const { toUserId, type, payload, count } = req.body;
 
-  const socketId = users[toUserId];
-  if (socketId) {
-    io.to(socketId).emit("new-notification", { type, payload });
-    console.log(`[Notification] Envoyée à user ${toUserId} | type: ${type}`);
-  } else {
-    console.log(`[Notification] User ${toUserId} non connecté`);
+  if (!toUserId) {
+    return res.status(400).json({ error: "toUserId manquant" });
   }
+
+  console.log("📩 Notification reçue depuis Laravel :", {
+    toUserId,
+    type,
+    payload,
+    count,
+  });
+
+  io.emit("internal-notify", { toUserId, type, payload, count });
 
   return res.json({ status: "ok" });
 });
+
 
 // WebSocket
 io.on("connection", (socket) => {

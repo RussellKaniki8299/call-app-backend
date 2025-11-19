@@ -20,25 +20,46 @@ app.use(morgan("dev"));
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// Mémoire en RAM
+// Stockage en mémoire
 const users = {}; // userId -> socketId
 const rooms = {}; // roomId -> { socketId: userInfo }
 
+
+const SECRET_KEY = process.env.NODE_NOTIFY_KEY || "rud@@##less";
+
+// Test simple
 app.get("/", (req, res) => {
   res.send("Backend Socket.IO en ligne !");
 });
 
+// Endpoint pour recevoir les notifications depuis Laravel
+app.post("/notify", (req, res) => {
+  const key = req.query.key;
+  if (key !== SECRET_KEY) return res.status(403).json({ error: "Forbidden" });
+
+  const { toUserId, type, payload } = req.body;
+  if (!toUserId) return res.status(400).json({ error: "toUserId manquant" });
+
+  const socketId = users[toUserId];
+  if (socketId) {
+    io.to(socketId).emit("new-notification", { type, payload });
+    console.log(`Notification envoyée à user ${toUserId}`);
+  } else {
+    console.log(`User ${toUserId} non connecté, notification non envoyée`);
+  }
+
+  return res.json({ status: "ok" });
+});
+
+// WebSocket
 io.on("connection", (socket) => {
   console.log(`Utilisateur connecté : ${socket.id}`);
 
-  // Quand le front envoie son user_id après connexion
   socket.on("register-user", async (userId) => {
     console.log(`User enregistré : ${userId}`);
-
-    // Enregistre la correspondance userId -> socket.id
     users[userId] = socket.id;
 
-    // Appel API Laravel pour mettre en ligne
+    // Appel API Laravel pour marquer en ligne
     try {
       await axios.post("https://api.rudless.com/api/surho/update/en-ligne", {
         user_id: userId,
@@ -48,17 +69,14 @@ io.on("connection", (socket) => {
       console.error(`Erreur mise en ligne user ${userId}:`, error.message);
     }
 
-    // Diffuse l'événement de présence
     io.emit("user-online", { user_id: userId });
   });
 
-  // Déconnexion
   socket.on("disconnect", async () => {
     console.log(`Déconnexion : ${socket.id}`);
-
     let disconnectedUserId = null;
 
-    // Retrouve l'utilisateur associé à ce socket
+    // Retrouver l’utilisateur
     for (const userId in users) {
       if (users[userId] === socket.id) {
         disconnectedUserId = userId;
@@ -77,7 +95,7 @@ io.on("connection", (socket) => {
       }
     }
 
-    // Met à jour l'état hors ligne
+    // Appel API Laravel pour marquer hors ligne
     if (disconnectedUserId) {
       try {
         await axios.post("https://api.rudless.com/api/surho/update/hors-ligne", {
@@ -92,13 +110,15 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Handlers existants
+  // Handlers
   registerCallHandlers(io, socket, users);
   registerRoomHandlers(io, socket, rooms, users);
   registerChatHandlers(io, socket, users);
   registerNotificationHandlers(io, socket, users);
 });
 
-server.listen(5000, () => {
-  console.log("Serveur Socket.IO prêt sur http://localhost:5000");
+// Render expose souvent le port via process.env.PORT
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Serveur Socket.IO prêt sur http://localhost:${PORT}`);
 });

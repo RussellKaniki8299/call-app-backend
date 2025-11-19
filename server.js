@@ -40,18 +40,15 @@ app.post("/notify", (req, res) => {
 
   const { toUserId, type, payload, count } = req.body;
 
-  if (!toUserId) {
-    return res.status(400).json({ error: "toUserId manquant" });
-  }
+  console.log("Notification reçue depuis Laravel :", req.body);
 
-  console.log("📩 Notification reçue depuis Laravel :", {
+ 
+  io.emit("internal-notify", {
     toUserId,
     type,
     payload,
     count,
   });
-
-  io.emit("internal-notify", { toUserId, type, payload, count });
 
   return res.json({ status: "ok" });
 });

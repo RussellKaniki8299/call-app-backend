@@ -1,3 +1,3 @@
 git add .
-git commit -m "Serveur ok"
+git commit -m "Server complet"
 git push origin main

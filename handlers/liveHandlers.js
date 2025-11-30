@@ -1,115 +1,78 @@
-module.exports = function registerLiveHandlers(io, socket, liveRooms = {}, users = {}) {
+module.exports = function registerLiveHandlers(io, socket, liveSessions) {
+  // liveSessions = { [roomId]: { broadcaster: socketId, viewers: { socketId: userInfo } } }
 
-  // 1️⃣ CRÉER UN LIVE
-  socket.on("live-create", ({ liveId, streamerId, title, type }) => {
-    if (!liveId || !streamerId) return;
+  // ---------------- START LIVE ----------------
+  socket.on("start-live", ({ roomId, userInfo }) => {
+    if (!roomId) return;
 
-    if (!liveRooms[liveId]) {
-      liveRooms[liveId] = {
-        streamer: streamerId,
-        users: {},
-        info: { title, type }
-      };
-    }
+    // Créer la session live si elle n'existe pas
+    if (!liveSessions[roomId]) liveSessions[roomId] = { broadcaster: null, viewers: {} };
+    liveSessions[roomId].broadcaster = socket.id;
+    socket.join(roomId);
 
-    // Le streamer rejoint la room
-    socket.join(liveId);
-    liveRooms[liveId].users[socket.id] = streamerId;
-    users[socket.id] = { id: streamerId };
+    console.log(`🎥 Live démarré dans ${roomId} par ${userInfo?.prenom || socket.id}`);
 
-    console.log(`LIVE DÉMARRÉ : ${liveId} par ${streamerId}`);
-
-    io.to(liveId).emit("live-started", {
-      liveId,
-      streamerId,
-      title,
-      type
-    });
+    // Notifier les futurs spectateurs
+    socket.to(roomId).emit("live-started", { broadcasterId: socket.id, userInfo });
   });
 
-  // 2️⃣ REJOINDRE UN LIVE (WebRTC ready)
-  socket.on("join-live", ({ liveId, userInfo }) => {
-    if (!liveRooms[liveId]) {
-      socket.emit("live-error", { message: "Live introuvable." });
-      return;
-    }
+  // ---------------- JOIN LIVE ----------------
+  socket.on("join-live", ({ roomId, userInfo }) => {
+    const session = liveSessions[roomId];
+    if (!session || !session.broadcaster) return;
 
-    socket.join(liveId);
-    liveRooms[liveId].users[socket.id] = userInfo.id;
-    users[socket.id] = userInfo;
+    // Ajouter spectateur
+    session.viewers[socket.id] = userInfo || { prenom: "Spectateur" };
+    socket.join(roomId);
 
-    console.log(`👤 User ${userInfo.id} rejoint le live ${liveId}`);
+    console.log(`👀 ${userInfo?.prenom || socket.id} rejoint le live de ${roomId}`);
 
-    // Informer les autres qu’un nouvel utilisateur est arrivé
-    Object.keys(liveRooms[liveId].users)
-      .filter(id => id !== socket.id)
-      .forEach(id => {
-        io.to(id).emit("user-joined", { userId: socket.id, userInfo });
-      });
-
-    // Envoyer la liste des participants existants au nouvel utilisateur
-    const existingUsers = Object.keys(liveRooms[liveId].users)
-      .filter(id => id !== socket.id)
-      .map(id => ({ userId: id, userInfo: users[id] }));
-
-    socket.emit("existing-users", existingUsers);
+    // Prévenir le broadcaster qu'un nouveau spectateur arrive
+    io.to(session.broadcaster).emit("new-spectator", { spectatorId: socket.id, userInfo });
   });
 
-  // 3️⃣ RELAY WEBRTC
-  socket.on("offer-live", ({ offer, to }) => {
-    io.to(to).emit("offer-live", { offer, from: socket.id });
+  // ---------------- END LIVE ----------------
+  socket.on("end-live", ({ roomId }) => {
+    const session = liveSessions[roomId];
+    if (!session || session.broadcaster !== socket.id) return;
+
+    // Notifier les spectateurs que le live est terminé
+    socket.to(roomId).emit("live-ended");
+
+    // Supprimer la session
+    delete liveSessions[roomId];
+
+    console.log(`🛑 Live terminé dans ${roomId} par ${socket.id}`);
   });
 
-  socket.on("answer-live", ({ answer, to }) => {
-    io.to(to).emit("answer-live", { answer, from: socket.id });
+  // ---------------- WebRTC SIGNALING ----------------
+  socket.on("offer", ({ offer, to }) => {
+    io.to(to).emit("offer", { offer, from: socket.id });
   });
 
-  socket.on("ice-candidate-live", ({ candidate, to }) => {
-    io.to(to).emit("ice-candidate-live", { candidate, from: socket.id });
+  socket.on("answer", ({ answer, to }) => {
+    io.to(to).emit("answer", { answer, from: socket.id });
   });
 
-  // 4️⃣ QUITTER UN LIVE
-  socket.on("leave-live", ({ liveId }) => {
-    socket.leave(liveId);
-    const userInfo = users[socket.id];
-    delete users[socket.id];
-
-    if (liveRooms[liveId]?.users[socket.id]) {
-      delete liveRooms[liveId].users[socket.id];
-    }
-
-    io.to(liveId).emit("user-left", socket.id);
-
-    // Si plus personne → supprimer la room
-    if (liveRooms[liveId] && Object.keys(liveRooms[liveId].users).length === 0) {
-      delete liveRooms[liveId];
-      console.log(`Live supprimé : ${liveId}`);
-    }
+  socket.on("ice-candidate", ({ candidate, to }) => {
+    io.to(to).emit("ice-candidate", { candidate, from: socket.id });
   });
 
-  // 5️⃣ ARRÊTER LE LIVE
-  socket.on("live-stop", ({ liveId, streamerId }) => {
-    if (!liveRooms[liveId] || liveRooms[liveId].streamer !== streamerId) return;
-
-    io.to(liveId).emit("live-ended", { liveId });
-    delete liveRooms[liveId];
-    console.log(`Live arrêté : ${liveId}`);
-  });
-
-  // 6️⃣ GESTION DE LA DÉCONNEXION
+  // ---------------- DISCONNECT ----------------
   socket.on("disconnect", () => {
-    for (const liveId in liveRooms) {
-      if (liveRooms[liveId].users[socket.id]) {
-        const userInfo = users[socket.id];
-        delete liveRooms[liveId].users[socket.id];
-        delete users[socket.id];
+    for (const roomId in liveSessions) {
+      const session = liveSessions[roomId];
 
-        io.to(liveId).emit("user-left", socket.id);
-
-        if (Object.keys(liveRooms[liveId].users).length === 0) {
-          delete liveRooms[liveId];
-          console.log(`Live supprimé (plus personne) : ${liveId}`);
-        }
+      // Si le broadcaster part, fin du live
+      if (session.broadcaster === socket.id) {
+        socket.to(roomId).emit("live-ended");
+        delete liveSessions[roomId];
+        console.log(`🛑 Live terminé dans ${roomId} (broadcaster déconnecté)`);
+      } else if (session.viewers[socket.id]) {
+        // Retirer le spectateur
+        delete session.viewers[socket.id];
+        socket.to(session.broadcaster).emit("spectator-left", socket.id);
+        console.log(`🚪 Spectateur ${socket.id} a quitté le live ${roomId}`);
       }
     }
   });

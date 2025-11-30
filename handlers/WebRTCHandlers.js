@@ -1,7 +1,7 @@
 module.exports = function registerWebRTCHandlers(io, socket) {
   // Dictionnaire pour stocker les PeerConnections par socketId
   const pcs = {};
-
+ 
   // Offre envoyée à un utilisateur
   socket.on("offer", ({ offer, to }) => {
     io.to(to).emit("offer", { offer, from: socket.id });

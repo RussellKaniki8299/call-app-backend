@@ -6,7 +6,6 @@ const morgan = require("morgan");
 const axios = require("axios");
 const { SECRET_KEY, PORT } = require("./config");
 
-// Handlers
 const {
   registerCallHandlers,
   registerRoomHandlers,
@@ -15,12 +14,13 @@ const {
   registerFriendsRequestHandlers,
   registerUnreadMessagesHandlers,
   registerCommentHandlers,
+  // registerLiveHandlers,
 } = require("./handlers/utils");
 
 // Controllers
-const { handleCountNotification } = require("./controllers/notificationController");
-const { handleCountFriendRequest } = require("./controllers/friendRequestController");
-const { handleCountMessage } = require("./controllers/messageController");
+const { handleCountNotification } = require('./controllers/notificationController');
+const { handleCountFriendRequest } = require('./controllers/friendRequestController');
+const { handleCountMessage } = require('./controllers/messageController');
 
 // Initialisation
 const app = express();
@@ -34,6 +34,7 @@ const io = new Server(server, { cors: { origin: "*" } });
 // Stockage mémoire
 const users = {}; // userId -> socketId
 const rooms = {}; // roomId -> { socketId: userInfo }
+const liveRooms = {}; // liveId -> { socketId: userInfo }
 
 // Route test
 app.get("/", (req, res) => {
@@ -44,21 +45,6 @@ app.get("/", (req, res) => {
 app.post("/count-notification", handleCountNotification(io, users));
 app.post("/count-friend-request", handleCountFriendRequest(io, users));
 app.post("/count-message", handleCountMessage(io, users));
-
-// WebRTC handler global
-function registerWebRTCHandlers(io, socket) {
-  socket.on("offer", ({ offer, to }) => {
-    io.to(to).emit("offer", { offer, from: socket.id });
-  });
-
-  socket.on("answer", ({ answer, to }) => {
-    io.to(to).emit("answer", { answer, from: socket.id });
-  });
-
-  socket.on("ice-candidate", ({ candidate, to }) => {
-    io.to(to).emit("ice-candidate", { candidate, from: socket.id });
-  });
-}
 
 // WebSocket
 io.on("connection", (socket) => {
@@ -73,8 +59,9 @@ io.on("connection", (socket) => {
       await axios.post("https://api.rudless.com/api/surho/update/en-ligne", {
         user_id: userId,
       });
+      console.log(`User ${userId} marqué en ligne`);
     } catch (error) {
-      console.error("Erreur mise en ligne :", error.message);
+      console.error(`Erreur mise en ligne user ${userId}:`, error.message);
     }
 
     io.emit("user-online", { user_id: userId });
@@ -90,6 +77,7 @@ io.on("connection", (socket) => {
       if (users[userId] === socket.id) {
         disconnectedUserId = userId;
         delete users[userId];
+        console.log(`Utilisateur ${userId} supprimé`);
         break;
       }
     }
@@ -101,20 +89,36 @@ io.on("connection", (socket) => {
 
         socket.to(roomId).emit("user-left", socket.id);
 
-        if (Object.keys(rooms[roomId]).length === 0) {
-          delete rooms[roomId];
-        }
+        if (Object.keys(rooms[roomId]).length === 0) delete rooms[roomId];
       }
     }
+
+    // // Retirer des lives (VERSION CORRIGÉE)
+    // for (const liveId in liveRooms) {
+    //   if (liveRooms[liveId][socket.id]) {
+    //     const userInfo = liveRooms[liveId][socket.id];
+
+    //     delete liveRooms[liveId][socket.id];
+
+    //     socket.to(liveId).emit("live-user-left", { userId: socket.id });
+
+    //     if (Object.keys(liveRooms[liveId]).length === 0) {
+    //       delete liveRooms[liveId];
+    //       console.log(`Live supprimé : ${liveId}`);
+    //     }
+    //   }
+    // }
 
     // Marquer hors ligne
     if (disconnectedUserId) {
       try {
-        await axios.post("https://api.rudless.com/api/surho/update/hors-ligne", {
-          user_id: disconnectedUserId,
-        });
+        await axios.post(
+          "https://api.rudless.com/api/surho/update/hors-ligne",
+          { user_id: disconnectedUserId }
+        );
+        console.log(`User ${disconnectedUserId} marqué hors ligne`);
       } catch (error) {
-        console.error("Erreur mise hors ligne :", error.message);
+        console.error(`Erreur mise hors ligne user ${disconnectedUserId}:`, error.message);
       }
 
       io.emit("user-offline", { user_id: disconnectedUserId });
@@ -122,16 +126,14 @@ io.on("connection", (socket) => {
   });
 
   // Handlers
+  registerCallHandlers(io, socket, users);
   registerRoomHandlers(io, socket, rooms, users);
   registerChatHandlers(io, socket, users);
   registerCommentHandlers(io, socket, users);
   registerNotificationHandlers(io, socket, users);
   registerFriendsRequestHandlers(io, socket, users);
   registerUnreadMessagesHandlers(io, socket, users);
-  registerCallHandlers(io, socket, users);
-
-  // WebRTC (global)
-  registerWebRTCHandlers(io, socket);
+  // registerLiveHandlers(io, socket, liveRooms, users);
 });
 
 // Lancement

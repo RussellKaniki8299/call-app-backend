@@ -14,7 +14,7 @@ const {
   registerFriendsRequestHandlers,
   registerUnreadMessagesHandlers,
   registerCommentHandlers,
-  registerWebRTCHandlers,
+  // registerLiveHandlers,
 } = require("./handlers/utils");
 
 // Controllers
@@ -52,34 +52,77 @@ io.on("connection", (socket) => {
 
   // Enregistrement user
   socket.on("register-user", async (userId) => {
+    console.log(`User enregistré : ${userId}`);
     users[userId] = socket.id;
+
+    try {
+      await axios.post("https://api.rudless.com/api/surho/update/en-ligne", {
+        user_id: userId,
+      });
+      console.log(`User ${userId} marqué en ligne`);
+    } catch (error) {
+      console.error(`Erreur mise en ligne user ${userId}:`, error.message);
+    }
+
     io.emit("user-online", { user_id: userId });
   });
 
   // Déconnexion
-  socket.on("disconnect", () => {
-    // Retirer des users, rooms, lives
+  socket.on("disconnect", async () => {
+    console.log(`Déconnexion : ${socket.id}`);
+    let disconnectedUserId = null;
+
+    // Retirer des users
     for (const userId in users) {
-      if (users[userId] === socket.id) delete users[userId];
+      if (users[userId] === socket.id) {
+        disconnectedUserId = userId;
+        delete users[userId];
+        console.log(`Utilisateur ${userId} supprimé`);
+        break;
+      }
     }
 
+    // Retirer des rooms
     for (const roomId in rooms) {
       if (rooms[roomId][socket.id]) {
         delete rooms[roomId][socket.id];
+
         socket.to(roomId).emit("user-left", socket.id);
+
         if (Object.keys(rooms[roomId]).length === 0) delete rooms[roomId];
       }
     }
 
-    for (const liveId in liveRooms) {
-      if (liveRooms[liveId][socket.id]) {
-        delete liveRooms[liveId][socket.id];
-        socket.to(liveId).emit("live-user-left", { userId: socket.id });
-        if (Object.keys(liveRooms[liveId]).length === 0) delete liveRooms[liveId];
-      }
-    }
+    // // Retirer des lives (VERSION CORRIGÉE)
+    // for (const liveId in liveRooms) {
+    //   if (liveRooms[liveId][socket.id]) {
+    //     const userInfo = liveRooms[liveId][socket.id];
 
-    io.emit("user-offline", { user_id: socket.id });
+    //     delete liveRooms[liveId][socket.id];
+
+    //     socket.to(liveId).emit("live-user-left", { userId: socket.id });
+
+    //     if (Object.keys(liveRooms[liveId]).length === 0) {
+    //       delete liveRooms[liveId];
+    //       console.log(`Live supprimé : ${liveId}`);
+    //     }
+    //   }
+    // }
+
+    // Marquer hors ligne
+    if (disconnectedUserId) {
+      try {
+        await axios.post(
+          "https://api.rudless.com/api/surho/update/hors-ligne",
+          { user_id: disconnectedUserId }
+        );
+        console.log(`User ${disconnectedUserId} marqué hors ligne`);
+      } catch (error) {
+        console.error(`Erreur mise hors ligne user ${disconnectedUserId}:`, error.message);
+      }
+
+      io.emit("user-offline", { user_id: disconnectedUserId });
+    }
   });
 
   // Handlers
@@ -90,10 +133,8 @@ io.on("connection", (socket) => {
   registerNotificationHandlers(io, socket, users);
   registerFriendsRequestHandlers(io, socket, users);
   registerUnreadMessagesHandlers(io, socket, users);
-
-  registerWebRTCHandlers(io, socket);
+  // registerLiveHandlers(io, socket, liveRooms, users);
 });
-
 
 // Lancement
 server.listen(PORT, () => {

@@ -1,14 +1,9 @@
-module.exports = function registerLiveHandlers(io, socket, liveRooms, users) {
+module.exports = function registerLiveHandlers(io, socket, liveRooms = {}, users = {}) {
 
-  /**
-   * 1. CRÉER UN LIVE
-   * data = { liveId, streamerId, title, type }
-   */
-  socket.on("live-create", (data) => {
-    const { liveId, streamerId, title, type } = data;
+  // 1️⃣ CRÉER UN LIVE
+  socket.on("live-create", ({ liveId, streamerId, title, type }) => {
     if (!liveId || !streamerId) return;
 
-    // Création de la room live si elle n’existe pas déjà
     if (!liveRooms[liveId]) {
       liveRooms[liveId] = {
         streamer: streamerId,
@@ -17,9 +12,10 @@ module.exports = function registerLiveHandlers(io, socket, liveRooms, users) {
       };
     }
 
-    // Le streamer join la room
+    // Le streamer rejoint la room
     socket.join(liveId);
     liveRooms[liveId].users[socket.id] = streamerId;
+    users[socket.id] = { id: streamerId };
 
     console.log(`LIVE DÉMARRÉ : ${liveId} par ${streamerId}`);
 
@@ -31,84 +27,85 @@ module.exports = function registerLiveHandlers(io, socket, liveRooms, users) {
     });
   });
 
-  /**
-   * 2. REJOINDRE UN LIVE
-   * data = { liveId, userId }
-   */
-  socket.on("live-join", ({ liveId, userId }) => {
+  // 2️⃣ REJOINDRE UN LIVE (WebRTC ready)
+  socket.on("join-live", ({ liveId, userInfo }) => {
     if (!liveRooms[liveId]) {
       socket.emit("live-error", { message: "Live introuvable." });
       return;
     }
 
     socket.join(liveId);
-    liveRooms[liveId].users[socket.id] = userId;
+    liveRooms[liveId].users[socket.id] = userInfo.id;
+    users[socket.id] = userInfo;
 
-    console.log(`👤 User ${userId} rejoint le live ${liveId}`);
+    console.log(`👤 User ${userInfo.id} rejoint le live ${liveId}`);
 
-    io.to(liveId).emit("live-user-joined", { liveId, userId });
+    // Informer les autres qu’un nouvel utilisateur est arrivé
+    Object.keys(liveRooms[liveId].users)
+      .filter(id => id !== socket.id)
+      .forEach(id => {
+        io.to(id).emit("user-joined", { userId: socket.id, userInfo });
+      });
+
+    // Envoyer la liste des participants existants au nouvel utilisateur
+    const existingUsers = Object.keys(liveRooms[liveId].users)
+      .filter(id => id !== socket.id)
+      .map(id => ({ userId: id, userInfo: users[id] }));
+
+    socket.emit("existing-users", existingUsers);
   });
 
-  /**
-   * 3. CHAT EN LIVE
-   * data = { liveId, userId, message }
-   */
-  socket.on("live-message", ({ liveId, userId, message }) => {
-    if (!liveRooms[liveId]) return;
-
-    io.to(liveId).emit("live-message", {
-      userId,
-      message,
-      timestamp: Date.now()
-    });
+  // 3️⃣ RELAY WEBRTC
+  socket.on("offer-live", ({ offer, to }) => {
+    io.to(to).emit("offer-live", { offer, from: socket.id });
   });
 
-  /**
-   * 4. QUITTER UN LIVE
-   */
-  socket.on("live-leave", ({ liveId, userId }) => {
+  socket.on("answer-live", ({ answer, to }) => {
+    io.to(to).emit("answer-live", { answer, from: socket.id });
+  });
+
+  socket.on("ice-candidate-live", ({ candidate, to }) => {
+    io.to(to).emit("ice-candidate-live", { candidate, from: socket.id });
+  });
+
+  // 4️⃣ QUITTER UN LIVE
+  socket.on("leave-live", ({ liveId }) => {
     socket.leave(liveId);
+    const userInfo = users[socket.id];
+    delete users[socket.id];
+
     if (liveRooms[liveId]?.users[socket.id]) {
       delete liveRooms[liveId].users[socket.id];
     }
 
-    console.log(`User ${userId} quitte le live ${liveId}`);
+    io.to(liveId).emit("user-left", socket.id);
 
-    io.to(liveId).emit("live-user-left", { userId });
-
-    // Si plus personne dans le live → suppression
-    if (Object.keys(liveRooms[liveId].users).length === 0) {
+    // Si plus personne → supprimer la room
+    if (liveRooms[liveId] && Object.keys(liveRooms[liveId].users).length === 0) {
       delete liveRooms[liveId];
       console.log(`Live supprimé : ${liveId}`);
     }
   });
 
-  /**
-   * 5. ARRÊTER LE LIVE (Streamer uniquement)
-   */
+  // 5️⃣ ARRÊTER LE LIVE
   socket.on("live-stop", ({ liveId, streamerId }) => {
     if (!liveRooms[liveId] || liveRooms[liveId].streamer !== streamerId) return;
 
     io.to(liveId).emit("live-ended", { liveId });
-
-    console.log(`Live arrêté : ${liveId}`);
-
-    // supprimer la room
     delete liveRooms[liveId];
+    console.log(`Live arrêté : ${liveId}`);
   });
 
-  /**
-   * 6. Déconnexion : retirer des lives actifs
-   */
+  // 6️⃣ GESTION DE LA DÉCONNEXION
   socket.on("disconnect", () => {
     for (const liveId in liveRooms) {
       if (liveRooms[liveId].users[socket.id]) {
-        const userId = liveRooms[liveId].users[socket.id];
+        const userInfo = users[socket.id];
         delete liveRooms[liveId].users[socket.id];
+        delete users[socket.id];
 
-        io.to(liveId).emit("live-user-left", { userId });
+        io.to(liveId).emit("user-left", socket.id);
 
-        // Si plus personne → supprimer
         if (Object.keys(liveRooms[liveId].users).length === 0) {
           delete liveRooms[liveId];
           console.log(`Live supprimé (plus personne) : ${liveId}`);

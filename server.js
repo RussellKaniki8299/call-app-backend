@@ -4,7 +4,8 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const morgan = require("morgan");
 const axios = require("axios");
-const { SECRET_KEY, PORT } = require('./config');
+const { SECRET_KEY, PORT } = require("./config");
+
 const {
   registerCallHandlers,
   registerRoomHandlers,
@@ -12,8 +13,8 @@ const {
   registerNotificationHandlers,
   registerFriendsRequestHandlers,
   registerUnreadMessagesHandlers,
-  registerCommentHandlers, 
-  registerLiveHandlers 
+  registerCommentHandlers,
+  registerLiveHandlers,
 } = require("./handlers/utils");
 
 // Controllers
@@ -26,20 +27,21 @@ const app = express();
 app.use(cors({ origin: "*", methods: ["GET", "POST"] }));
 app.use(express.json());
 app.use(morgan("dev"));
+
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// Stockage en mémoire
+// Stockage mémoire
 const users = {}; // userId -> socketId
 const rooms = {}; // roomId -> { socketId: userInfo }
-const liveRooms = {}; // liveId -> { streamer, users, info }
+const liveRooms = {}; // liveId -> { socketId: userInfo }
 
-// Routes
+// Route test
 app.get("/", (req, res) => {
   res.send("Backend Socket.IO en ligne !");
 });
 
-// Routes pour les comptages
+// Routes comptages
 app.post("/count-notification", handleCountNotification(io, users));
 app.post("/count-friend-request", handleCountFriendRequest(io, users));
 app.post("/count-message", handleCountMessage(io, users));
@@ -48,16 +50,20 @@ app.post("/count-message", handleCountMessage(io, users));
 io.on("connection", (socket) => {
   console.log(`Utilisateur connecté : ${socket.id}`);
 
-  // Enregistrement du user
+  // Enregistrement user
   socket.on("register-user", async (userId) => {
     console.log(`User enregistré : ${userId}`);
     users[userId] = socket.id;
+
     try {
-      await axios.post("https://api.rudless.com/api/surho/update/en-ligne", { user_id: userId });
+      await axios.post("https://api.rudless.com/api/surho/update/en-ligne", {
+        user_id: userId,
+      });
       console.log(`User ${userId} marqué en ligne`);
     } catch (error) {
       console.error(`Erreur mise en ligne user ${userId}:`, error.message);
     }
+
     io.emit("user-online", { user_id: userId });
   });
 
@@ -66,12 +72,12 @@ io.on("connection", (socket) => {
     console.log(`Déconnexion : ${socket.id}`);
     let disconnectedUserId = null;
 
-    // Retirer de users
+    // Retirer des users
     for (const userId in users) {
       if (users[userId] === socket.id) {
         disconnectedUserId = userId;
         delete users[userId];
-        console.log(`Utilisateur ${userId} supprimé du registre`);
+        console.log(`Utilisateur ${userId} supprimé`);
         break;
       }
     }
@@ -80,22 +86,25 @@ io.on("connection", (socket) => {
     for (const roomId in rooms) {
       if (rooms[roomId][socket.id]) {
         delete rooms[roomId][socket.id];
+
         socket.to(roomId).emit("user-left", socket.id);
+
         if (Object.keys(rooms[roomId]).length === 0) delete rooms[roomId];
       }
     }
 
-    // Retirer des lives
+    // Retirer des lives (VERSION CORRIGÉE)
     for (const liveId in liveRooms) {
-      if (liveRooms[liveId].users[socket.id]) {
-        const userId = liveRooms[liveId].users[socket.id];
-        delete liveRooms[liveId].users[socket.id];
-        socket.to(liveId).emit("live-user-left", { userId });
+      if (liveRooms[liveId][socket.id]) {
+        const userInfo = liveRooms[liveId][socket.id];
 
-        // Si plus personne dans le live
-        if (Object.keys(liveRooms[liveId].users).length === 0) {
+        delete liveRooms[liveId][socket.id];
+
+        socket.to(liveId).emit("live-user-left", { userId: socket.id });
+
+        if (Object.keys(liveRooms[liveId]).length === 0) {
           delete liveRooms[liveId];
-          console.log(` Live supprimé : ${liveId}`);
+          console.log(`Live supprimé : ${liveId}`);
         }
       }
     }
@@ -103,11 +112,15 @@ io.on("connection", (socket) => {
     // Marquer hors ligne
     if (disconnectedUserId) {
       try {
-        await axios.post("https://api.rudless.com/api/surho/update/hors-ligne", { user_id: disconnectedUserId });
+        await axios.post(
+          "https://api.rudless.com/api/surho/update/hors-ligne",
+          { user_id: disconnectedUserId }
+        );
         console.log(`User ${disconnectedUserId} marqué hors ligne`);
       } catch (error) {
         console.error(`Erreur mise hors ligne user ${disconnectedUserId}:`, error.message);
       }
+
       io.emit("user-offline", { user_id: disconnectedUserId });
     }
   });
@@ -116,14 +129,14 @@ io.on("connection", (socket) => {
   registerCallHandlers(io, socket, users);
   registerRoomHandlers(io, socket, rooms, users);
   registerChatHandlers(io, socket, users);
-  registerCommentHandlers(io, socket, users); 
+  registerCommentHandlers(io, socket, users);
   registerNotificationHandlers(io, socket, users);
   registerFriendsRequestHandlers(io, socket, users);
   registerUnreadMessagesHandlers(io, socket, users);
-  registerLiveHandlers(io, socket, liveRooms, users); 
+  registerLiveHandlers(io, socket, liveRooms, users);
 });
 
-// Démarrage serveur
+// Lancement
 server.listen(PORT, () => {
   console.log(`Serveur Socket.IO prêt sur http://localhost:${PORT}`);
 });

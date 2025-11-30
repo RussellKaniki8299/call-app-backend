@@ -1,3 +1,3 @@
 git add .
-git commit -m "Server complet"
+git commit -m "Server complet : Appels & Lives"
 git push origin main

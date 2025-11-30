@@ -13,6 +13,7 @@ const {
   registerFriendsRequestHandlers,
   registerUnreadMessagesHandlers,
   registerCommentHandlers, 
+  registerLiveHandlers 
 } = require("./handlers/utils");
 
 // Controllers
@@ -31,6 +32,7 @@ const io = new Server(server, { cors: { origin: "*" } });
 // Stockage en mémoire
 const users = {}; // userId -> socketId
 const rooms = {}; // roomId -> { socketId: userInfo }
+const liveRooms = {}; // liveId -> { streamer, users, info }
 
 // Routes
 app.get("/", (req, res) => {
@@ -63,6 +65,8 @@ io.on("connection", (socket) => {
   socket.on("disconnect", async () => {
     console.log(`Déconnexion : ${socket.id}`);
     let disconnectedUserId = null;
+
+    // Retirer de users
     for (const userId in users) {
       if (users[userId] === socket.id) {
         disconnectedUserId = userId;
@@ -71,6 +75,8 @@ io.on("connection", (socket) => {
         break;
       }
     }
+
+    // Retirer des rooms
     for (const roomId in rooms) {
       if (rooms[roomId][socket.id]) {
         delete rooms[roomId][socket.id];
@@ -78,6 +84,23 @@ io.on("connection", (socket) => {
         if (Object.keys(rooms[roomId]).length === 0) delete rooms[roomId];
       }
     }
+
+    // Retirer des lives
+    for (const liveId in liveRooms) {
+      if (liveRooms[liveId].users[socket.id]) {
+        const userId = liveRooms[liveId].users[socket.id];
+        delete liveRooms[liveId].users[socket.id];
+        socket.to(liveId).emit("live-user-left", { userId });
+
+        // Si plus personne dans le live
+        if (Object.keys(liveRooms[liveId].users).length === 0) {
+          delete liveRooms[liveId];
+          console.log(` Live supprimé : ${liveId}`);
+        }
+      }
+    }
+
+    // Marquer hors ligne
     if (disconnectedUserId) {
       try {
         await axios.post("https://api.rudless.com/api/surho/update/hors-ligne", { user_id: disconnectedUserId });
@@ -97,6 +120,7 @@ io.on("connection", (socket) => {
   registerNotificationHandlers(io, socket, users);
   registerFriendsRequestHandlers(io, socket, users);
   registerUnreadMessagesHandlers(io, socket, users);
+  registerLiveHandlers(io, socket, liveRooms, users); 
 });
 
 // Démarrage serveur

@@ -14,7 +14,6 @@ const {
   registerFriendsRequestHandlers,
   registerUnreadMessagesHandlers,
   registerCommentHandlers,
-  // registerLiveHandlers,
 } = require("./handlers/utils");
 
 // Controllers
@@ -34,7 +33,6 @@ const io = new Server(server, { cors: { origin: "*" } });
 // Stockage mémoire
 const users = {}; // userId -> socketId
 const rooms = {}; // roomId -> { socketId: userInfo }
-const liveRooms = {}; // liveId -> { socketId: userInfo }
 
 // Route test
 app.get("/", (req, res) => {
@@ -93,22 +91,7 @@ io.on("connection", (socket) => {
       }
     }
 
-    // // Retirer des lives (VERSION CORRIGÉE)
-    // for (const liveId in liveRooms) {
-    //   if (liveRooms[liveId][socket.id]) {
-    //     const userInfo = liveRooms[liveId][socket.id];
-
-    //     delete liveRooms[liveId][socket.id];
-
-    //     socket.to(liveId).emit("live-user-left", { userId: socket.id });
-
-    //     if (Object.keys(liveRooms[liveId]).length === 0) {
-    //       delete liveRooms[liveId];
-    //       console.log(`Live supprimé : ${liveId}`);
-    //     }
-    //   }
-    // }
-
+    
     // Marquer hors ligne
     if (disconnectedUserId) {
       try {
@@ -133,7 +116,6 @@ io.on("connection", (socket) => {
   registerNotificationHandlers(io, socket, users);
   registerFriendsRequestHandlers(io, socket, users);
   registerUnreadMessagesHandlers(io, socket, users);
-  // registerLiveHandlers(io, socket, liveRooms, users);
 });
 
 // Lancement

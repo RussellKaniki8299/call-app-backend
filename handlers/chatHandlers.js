@@ -170,6 +170,10 @@ module.exports = function registerChatHandlers(io, socket, users) {
       io.to(fromUserId.toString()).emit("delete-message", payload);
       io.to(toUserId.toString()).emit("delete-message", payload);
 
+      // --- Mise à jour liste correspondants
+      io.to(fromUserId.toString()).emit("update-correspondant-list");
+      io.to(toUserId.toString()).emit("update-correspondant-list");
+
       console.log(`[Message supprimé POUR TOUS] ${messageId} | ${fromUserId} ↔ ${toUserId}`);
     }
 
@@ -179,10 +183,12 @@ module.exports = function registerChatHandlers(io, socket, users) {
 
       io.to(fromUserId.toString()).emit("delete-message", payload);
 
+      // --- Mise à jour liste correspondants pour l'expéditeur seulement
+      io.to(fromUserId.toString()).emit("update-correspondant-list");
+
       console.log(`[Message supprimé POUR SOI] ${messageId} | ${fromUserId}`);
     }
   });
-
 
   // --- Modification de message
   socket.on("edit-message", ({ messageId, newContent, fromUserId, toUserId }) => {
@@ -195,6 +201,10 @@ module.exports = function registerChatHandlers(io, socket, users) {
 
     io.to(fromUserId.toString()).emit("edit-message", payload);
     io.to(toUserId.toString()).emit("edit-message", payload);
+
+    // --- Mise à jour liste correspondants
+    io.to(fromUserId.toString()).emit("update-correspondant-list");
+    io.to(toUserId.toString()).emit("update-correspondant-list");
 
     console.log(`[Message édité] ${messageId} | ${fromUserId} ↔ ${toUserId}`);
   });

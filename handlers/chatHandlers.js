@@ -158,17 +158,45 @@ module.exports = function registerChatHandlers(io, socket, users) {
     socket.broadcast.emit("new-message", msg);
   });
 
-  // --- Commentaires publics
-  socket.on("new-comment", (comment) => {
-    io.emit("new-comment", comment);
+
+  // --- Suppression de message (self ou all)
+  socket.on("delete-message", ({ messageId, fromUserId, toUserId, mode }) => {
+    if (!messageId || !fromUserId || !toUserId || !mode) return;
+
+    // Suppression pour TOUS
+    if (mode === "all") {
+      const payload = { messageId };
+
+      io.to(fromUserId.toString()).emit("delete-message", payload);
+      io.to(toUserId.toString()).emit("delete-message", payload);
+
+      console.log(`[Message supprimé POUR TOUS] ${messageId} | ${fromUserId} ↔ ${toUserId}`);
+    }
+
+    // Suppression pour SOI UNIQUEMENT
+    if (mode === "self") {
+      const payload = { messageId, selfDelete: true };
+
+      io.to(fromUserId.toString()).emit("delete-message", payload);
+
+      console.log(`[Message supprimé POUR SOI] ${messageId} | ${fromUserId}`);
+    }
   });
 
-  // --- Suppression et édition
-  socket.on("delete-message", (messageId) => {
-    io.emit("delete-message", messageId);
+
+  // --- Modification de message
+  socket.on("edit-message", ({ messageId, newContent, fromUserId, toUserId }) => {
+    if (!messageId || !newContent || !fromUserId || !toUserId) return;
+
+    const payload = {
+      messageId,
+      newContent,
+    };
+
+    io.to(fromUserId.toString()).emit("edit-message", payload);
+    io.to(toUserId.toString()).emit("edit-message", payload);
+
+    console.log(`[Message édité] ${messageId} | ${fromUserId} ↔ ${toUserId}`);
   });
 
-  socket.on("edit-message", (updatedMessage) => {
-    io.emit("edit-message", updatedMessage);
-  });
 };

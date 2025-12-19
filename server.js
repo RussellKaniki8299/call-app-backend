@@ -120,5 +120,5 @@ io.on("connection", (socket) => {
 
 // Lancement
 server.listen(PORT, () => {
-  console.log(`Serveur Socket.IO prêt sur http://localhost:${PORT}`);
+  console.log(`Serveur Socket.IO prêt sur le port ${PORT}`);
 });

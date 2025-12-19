@@ -55,4 +55,28 @@ module.exports = function registerRoomHandlers(io, socket, rooms, users) {
     io.to(to).emit("ice-candidate", { candidate, from: socket.id });
   });
 
+  // --- Message dans une room ---
+  socket.on("room-message", ({ roomId, message, file, user }) => {
+    if (!roomId || !rooms[roomId]) return;
+    if (!rooms[roomId][socket.id]) return;
+
+    const payload = {
+      roomId,
+      message: message?.trim() || "",
+      file: file || null,
+      user: {
+        id: user?.id,
+        nom: user?.nom,
+        prenom: user?.prenom,
+        photo: user?.photo
+      },
+      createdAt: new Date().toISOString()
+    };
+
+    io.to(roomId).emit("room-message", payload);
+
+    console.log(`💬 Message dans ${roomId} par ${user?.prenom || "Utilisateur"}`);
+  });
+
+
 };

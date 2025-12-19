@@ -1,13 +1,20 @@
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
+const fs = require("fs");
 
 const router = express.Router();
+
+// ✅ S'assurer que le dossier existe
+const uploadDir = "uploads/chat";
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
 
 // Configuration stockage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, "uploads/chat");
+    cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueName =

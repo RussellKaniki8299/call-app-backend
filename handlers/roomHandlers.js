@@ -56,29 +56,25 @@ module.exports = function registerRoomHandlers(io, socket, rooms, users) {
   });
 
   // --- Message dans une room ---
-  socket.on("room-message", ({ senderId, roomId, message, file, user }) => {
-    // Vérifications de base
+  socket.on("room-message", ({ senderId, roomId, message, files, user }) => {
     if (!roomId || !rooms[roomId]) return;
-    if (!rooms[roomId][socket.id]) return; // Vérifie que le socket est bien dans la room
-    if (!senderId) return; // Vérifie que l'ID de l'envoyeur est présent
+    if (!rooms[roomId][socket.id]) return;
+    if (!senderId) return;
 
     const payload = {
       roomId,
-      message: message?.trim() || "",    // message texte
-      file: file || null,                // fichier optionnel
-      sender: {                          // infos de l'envoyeur
-        id: senderId,                    // ID réel de l'utilisateur
+      message: message || "",
+      files: files || [],
+      sender: {
+        id: senderId,
         nom: user?.nom,
         prenom: user?.prenom,
-        photo: user?.photo
+        photo: user?.photo,
       },
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
 
-    // Diffuser le message à tous les membres de la room
     io.to(roomId).emit("room-message", payload);
-
-    console.log(`💬 Message dans ${roomId} par ${user?.prenom || "Utilisateur"}`);
   });
 
 

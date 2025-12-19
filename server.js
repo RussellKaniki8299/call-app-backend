@@ -27,6 +27,11 @@ app.use(cors({ origin: "*", methods: ["GET", "POST"] }));
 app.use(express.json());
 app.use(morgan("dev"));
 
+
+app.use("/uploads", express.static("uploads"));
+app.use("/api/chat", require("./routes/chatUpload"));
+
+
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 

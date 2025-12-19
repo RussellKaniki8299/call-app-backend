@@ -5,7 +5,7 @@ const fs = require("fs");
 
 const router = express.Router();
 
-// ✅ S'assurer que le dossier existe
+// S'assurer que le dossier existe
 const uploadDir = "uploads/chat";
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });

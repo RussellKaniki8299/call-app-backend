@@ -69,7 +69,7 @@ module.exports = function registerRoomHandlers(io, socket, rooms, users) {
         id: senderId,
         nom: user?.nom,
         prenom: user?.prenom,
-        photo: user?.photo,
+        avatar: user?.avatar,
       },
       createdAt: new Date().toISOString(),
     };

@@ -99,10 +99,11 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     socket.to(roomId).emit("user-left", userId);
 
     // --- Nombre de participants ---
-    io.to(roomId).emit("room-participant-count", {
-      roomId,
-      count: Object.keys(rooms[roomId]).length,
-    });
+    io.to(roomId).emit(
+      "room-participant-count",
+      Object.keys(rooms[roomId]).length
+    );
+
   };
 
   socket.on("leave-room", ({ roomId }) => {

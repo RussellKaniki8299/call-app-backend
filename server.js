@@ -25,7 +25,7 @@ const { handleCountMessage } = require('./controllers/messageController');
 const app = express();
 app.use(cors({ origin: "*", methods: ["GET", "POST"] }));
 app.use(express.json());
-app.use(morgan("dev"));
+app.use(morgan("dev")); 
 
 
 app.use("/uploads", express.static("uploads"));

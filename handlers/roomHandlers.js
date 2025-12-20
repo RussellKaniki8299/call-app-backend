@@ -33,7 +33,7 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
 
     socket.emit("existing-users", existingUsers);
 
-    // --- Historique des messages ---
+    // --- Historique ---
     socket.emit("room-history", roomMessages[roomId]);
 
     // --- Notifier les autres ---
@@ -59,15 +59,15 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     roomMessages[roomId].push(joinMessage);
     io.to(roomId).emit("room-message", joinMessage);
 
-    // --- Nombre de participants ---
-    io.to(roomId).emit("room-participant-count", {
-      roomId,
-      count: Object.keys(rooms[roomId]).length,
-    });
+    // ✅ NOMBRE SEUL
+    io.to(roomId).emit(
+      "room-participant-count",
+      Object.keys(rooms[roomId]).length
+    );
   });
 
   // =========================
-  // LEAVE ROOM / DISCONNECT
+  // LEAVE / DISCONNECT
   // =========================
   const handleLeave = (roomId, userId) => {
     if (!rooms[roomId] || !rooms[roomId][userId]) return;
@@ -78,7 +78,6 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
 
     console.log(`🚪 ${userId} quitte ${roomId}`);
 
-    // --- Message système LEAVE ---
     const leaveMessage = {
       type: "system",
       message: `${userInfo?.prenom || "Utilisateur"} a quitté la room`,
@@ -95,15 +94,13 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     roomMessages[roomId].push(leaveMessage);
     io.to(roomId).emit("room-message", leaveMessage);
 
-    // --- Notifier ---
     socket.to(roomId).emit("user-left", userId);
 
-    // --- Nombre de participants ---
+    // ✅ NOMBRE SEUL
     io.to(roomId).emit(
       "room-participant-count",
       Object.keys(rooms[roomId]).length
     );
-
   };
 
   socket.on("leave-room", ({ roomId }) => {
@@ -130,12 +127,10 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
       userId: socket.id,
       microOn,
     });
-
-    console.log(`🎙 ${socket.id} micro: ${microOn}`);
   });
 
   // =========================
-  // WEBRTC SIGNALING
+  // WEBRTC
   // =========================
   socket.on("offer", ({ offer, to }) => {
     io.to(to).emit("offer", { offer, from: socket.id });
@@ -150,7 +145,7 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
   });
 
   // =========================
-  // CHAT MESSAGE
+  // CHAT
   // =========================
   socket.on("room-message", ({ senderId, roomId, message, files, user }) => {
     if (!rooms[roomId] || !rooms[roomId][socket.id]) return;

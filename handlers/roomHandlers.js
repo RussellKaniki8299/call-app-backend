@@ -1,9 +1,17 @@
 module.exports = function registerRoomHandlers(io, socket, rooms) {
 
-  // =========================
-  // Mémoire : messages par room
-  // =========================
+  // Stockage mémoire des messages par room
   const roomMessages = {};
+
+  // Fonction utilitaire pour envoyer au front
+  function formatForFront(message) {
+    return {
+      sender: message.user,
+      message: message.text,
+      files: message.files || [],
+      createdAt: message.createdAt,
+    };
+  }
 
   // =========================
   // JOIN ROOM
@@ -16,22 +24,15 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
 
     const micState = typeof microOn === "boolean" ? microOn : true;
 
-    // Enregistrer l’utilisateur
     rooms[roomId][socket.id] = {
-      id: socket.id,
-      prenom: userInfo.prenom,
-      nom: userInfo.nom,
-      avatar: userInfo.avatar || "default.png",
+      ...userInfo,
       microOn: micState,
     };
 
     socket.join(roomId);
+    console.log(`👤 ${userInfo.prenom || "Utilisateur"} rejoint ${roomId}`);
 
-    console.log(`👤 ${userInfo.prenom} rejoint ${roomId}`);
-
-    // =========================
-    // Utilisateurs existants
-    // =========================
+    // --- Utilisateurs existants ---
     const existingUsers = Object.entries(rooms[roomId])
       .filter(([id]) => id !== socket.id)
       .map(([id, info]) => ({
@@ -41,42 +42,35 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
 
     socket.emit("existing-users", existingUsers);
 
-    // =========================
-    // Historique des messages
-    // =========================
-    socket.emit("room-history", roomMessages[roomId]);
+    // --- Historique des messages ---
+    socket.emit(
+      "room-history",
+      roomMessages[roomId].map(formatForFront)
+    );
 
-    // =========================
-    // Notifier les autres (user-joined)
-    // =========================
+    // --- Notifier les autres ---
     socket.to(roomId).emit("user-joined", {
       userId: socket.id,
       userInfo: rooms[roomId][socket.id],
     });
 
-    // =========================
-    // Message système JOIN
-    // =========================
+    // --- Message système JOIN ---
     const joinMessage = {
-      id: Date.now(),
       type: "system",
-      text: `${userInfo.prenom} a rejoint la room`,
+      text: `${userInfo.prenom || "Utilisateur"} a rejoint la room`,
       files: [],
       user: {
         id: socket.id,
         prenom: userInfo.prenom,
-        nom: userInfo.nom,
         avatar: userInfo.avatar || "default.png",
       },
       createdAt: new Date().toISOString(),
     };
 
     roomMessages[roomId].push(joinMessage);
-    io.to(roomId).emit("room-message", joinMessage);
+    io.to(roomId).emit("room-message", formatForFront(joinMessage));
 
-    // =========================
-    // Nombre de participants
-    // =========================
+    // --- Nombre de participants ---
     io.to(roomId).emit(
       "room-participant-count",
       Object.keys(rooms[roomId]).length
@@ -84,7 +78,7 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
   });
 
   // =========================
-  // LEAVE / DISCONNECT
+  // LEAVE ROOM / DISCONNECT
   // =========================
   const handleLeave = (roomId, userId) => {
     if (!rooms[roomId] || !rooms[roomId][userId]) return;
@@ -93,38 +87,35 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     delete rooms[roomId][userId];
     socket.leave(roomId);
 
-    console.log(`🚪 ${userInfo.prenom} quitte ${roomId}`);
+    console.log(`🚪 ${userId} quitte ${roomId}`);
 
-    // Message système LEAVE
+    // --- Message système LEAVE ---
     const leaveMessage = {
-      id: Date.now(),
       type: "system",
-      text: `${userInfo.prenom} a quitté la room`,
+      text: `${userInfo.prenom || "Utilisateur"} a quitté la room`,
       files: [],
       user: {
         id: userId,
         prenom: userInfo.prenom,
-        nom: userInfo.nom,
         avatar: userInfo.avatar || "default.png",
       },
       createdAt: new Date().toISOString(),
     };
 
     roomMessages[roomId].push(leaveMessage);
-    io.to(roomId).emit("room-message", leaveMessage);
+    io.to(roomId).emit("room-message", formatForFront(leaveMessage));
 
+    // --- Notifier les autres ---
     socket.to(roomId).emit("user-left", userId);
 
+    // --- Nombre de participants ---
     io.to(roomId).emit(
       "room-participant-count",
       Object.keys(rooms[roomId]).length
     );
   };
 
-  socket.on("leave-room", ({ roomId }) => {
-    handleLeave(roomId, socket.id);
-  });
-
+  socket.on("leave-room", ({ roomId }) => handleLeave(roomId, socket.id));
   socket.on("disconnect", () => {
     for (const roomId of Object.keys(rooms)) {
       if (rooms[roomId][socket.id]) {
@@ -145,6 +136,8 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
       userId: socket.id,
       microOn,
     });
+
+    console.log(`🎙 ${socket.id} micro: ${microOn}`);
   });
 
   // =========================
@@ -169,20 +162,18 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     if (!rooms[roomId] || !rooms[roomId][socket.id]) return;
 
     const payload = {
-      id: Date.now(),
       type: "user",
       text: message || "",
       files: files || [],
       user: {
         id: senderId,
         prenom: user?.prenom,
-        nom: user?.nom,
         avatar: user?.avatar || "default.png",
       },
       createdAt: new Date().toISOString(),
     };
 
     roomMessages[roomId].push(payload);
-    io.to(roomId).emit("room-message", payload);
+    io.to(roomId).emit("room-message", formatForFront(payload));
   });
 };

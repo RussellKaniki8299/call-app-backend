@@ -1,119 +1,48 @@
 module.exports = function registerRoomHandlers(io, socket, rooms, users) {
 
-  const roomMessages = {};
-  const cleanupTimers = {};
-  const CLEANUP_DELAY = 30 * 60 * 1000;
-  const MAX_PARTICIPANTS = 10;
-
   // --- Rejoindre une room ---
-  socket.on("join-room", ({ roomId, userInfo, microOn }) => {
+  socket.on("join-room", ({ roomId, userInfo }) => {
     if (!roomId) return;
 
+    // Créer la room si elle n'existe pas
     if (!rooms[roomId]) rooms[roomId] = {};
-    if (!roomMessages[roomId]) roomMessages[roomId] = [];
 
-    const currentParticipants = Object.keys(rooms[roomId]).length;
-    if (currentParticipants >= MAX_PARTICIPANTS) {
-      socket.emit("room-full", { roomId, max: MAX_PARTICIPANTS });
-      return;
-    }
+    // Sauvegarder les infos du user dans la room
+    rooms[roomId][socket.id] = userInfo || {};
 
-    if (cleanupTimers[roomId]) {
-      clearTimeout(cleanupTimers[roomId]);
-      delete cleanupTimers[roomId];
-    }
-
-    // Par défaut microOn = true si non envoyé
-    const microState = typeof microOn === "boolean" ? microOn : true;
-
-    rooms[roomId][socket.id] = {
-      ...userInfo,
-      microOn: microState
-    };
     socket.join(roomId);
+    console.log(`👤 ${userInfo?.prenom || "Utilisateur"} rejoint ${roomId}`);
 
-    console.log(`${userInfo?.prenom || "Utilisateur"} rejoint ${roomId} (micro: ${microState})`);
-
-    // Nombre de participants
-    const participantCount = Object.keys(rooms[roomId]).length;
-    io.to(roomId).emit("room-participant-count", participantCount);
-
-    // Message système
-    const joinPayload = {
-      type: "system",
-      message: `${userInfo?.prenom || "Utilisateur"} a rejoint la room`,
-      user: rooms[roomId][socket.id],
-      createdAt: new Date().toISOString(),
-    };
-    io.to(roomId).emit("room-message", joinPayload);
-
-    // Utilisateurs existants
+    // Obtenir les utilisateurs existants dans la room (sauf lui-même)
     const existingUsers = Object.entries(rooms[roomId])
       .filter(([id]) => id !== socket.id)
       .map(([id, info]) => ({ userId: id, userInfo: info }));
-    socket.emit("existing-users", existingUsers);
 
-    // Historique complet
-    socket.emit("room-history", roomMessages[roomId]);
+    // Notifier les autres participants qu’un nouveau arrive
+    socket.to(roomId).emit("user-joined", { 
+      userId: socket.id, 
+      userInfo: rooms[roomId][socket.id] 
+    });
+
+    // Envoyer à l’utilisateur les utilisateurs déjà présents
+    socket.emit("existing-users", existingUsers);
   });
 
   // --- Quitter une room ---
-  const handleLeave = (roomId, userId) => {
-    if (!roomId || !rooms[roomId] || !rooms[roomId][userId]) return;
-
-    const userInfo = rooms[roomId][userId];
-    delete rooms[roomId][userId];
-    socket.leave(roomId);
-
-    // Message système
-    const leavePayload = {
-      type: "system",
-      message: `${userInfo?.prenom || "Utilisateur"} a quitté la room`,
-      user: userInfo,
-      createdAt: new Date().toISOString(),
-    };
-    io.to(roomId).emit("room-message", leavePayload);
-
-    // Nombre de participants
-    const participantCount = Object.keys(rooms[roomId]).length;
-    io.to(roomId).emit("room-participant-count", participantCount);
-
-    console.log(`${userId} quitte ${roomId}`);
-
-    if (participantCount === 0) {
-      cleanupTimers[roomId] = setTimeout(() => {
-        delete rooms[roomId];
-        delete roomMessages[roomId];
-        delete cleanupTimers[roomId];
-        console.log(`Room ${roomId} nettoyée`);
-      }, CLEANUP_DELAY);
-    }
-  };
-
-  socket.on("leave-room", ({ roomId }) => handleLeave(roomId, socket.id));
-  socket.on("disconnect", () => {
-    for (const roomId of Object.keys(rooms)) {
-      if (rooms[roomId][socket.id]) {
-        handleLeave(roomId, socket.id);
-      }
-    }
-  });
-
-  // --- Microphone update ---
-  socket.on("update-micro", ({ roomId, microOn }) => {
+  socket.on("leave-room", ({ roomId }) => {
     if (!roomId || !rooms[roomId] || !rooms[roomId][socket.id]) return;
 
-    rooms[roomId][socket.id].microOn = microOn;
+    delete rooms[roomId][socket.id];
+    socket.leave(roomId);
 
-    io.to(roomId).emit("micro-updated", {
-      userId: socket.id,
-      microOn
-    });
+    socket.to(roomId).emit("user-left", socket.id);
+    console.log(`🚪 ${socket.id} quitte ${roomId}`);
 
-    console.log(`${rooms[roomId][socket.id].prenom || "Utilisateur"} micro: ${microOn}`);
+    // Supprimer la room si vide
+    if (Object.keys(rooms[roomId]).length === 0) delete rooms[roomId];
   });
 
-  // --- WebRTC signaling ---
+  // --- Offres WebRTC ---
   socket.on("offer", ({ offer, to }) => {
     io.to(to).emit("offer", { offer, from: socket.id });
   });
@@ -126,14 +55,13 @@ module.exports = function registerRoomHandlers(io, socket, rooms, users) {
     io.to(to).emit("ice-candidate", { candidate, from: socket.id });
   });
 
-  // --- Chat ---
+  // --- Message dans une room ---
   socket.on("room-message", ({ senderId, roomId, message, files, user }) => {
     if (!roomId || !rooms[roomId]) return;
     if (!rooms[roomId][socket.id]) return;
     if (!senderId) return;
 
     const payload = {
-      type: "user",
       roomId,
       message: message || "",
       files: files || [],
@@ -146,7 +74,9 @@ module.exports = function registerRoomHandlers(io, socket, rooms, users) {
       createdAt: new Date().toISOString(),
     };
 
-    roomMessages[roomId].push(payload);
     io.to(roomId).emit("room-message", payload);
   });
+
+
+
 };

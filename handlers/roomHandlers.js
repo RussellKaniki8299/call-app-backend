@@ -3,16 +3,6 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
   // Stockage mémoire des messages par room
   const roomMessages = {};
 
-  // Fonction utilitaire pour envoyer au front
-  function formatForFront(message) {
-    return {
-      sender: message.user,
-      message: message.text,
-      files: message.files || [],
-      createdAt: message.createdAt,
-    };
-  }
-
   // =========================
   // JOIN ROOM
   // =========================
@@ -30,7 +20,8 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     };
 
     socket.join(roomId);
-    console.log(`👤 ${userInfo.prenom || "Utilisateur"} rejoint ${roomId}`);
+
+    console.log(`👤 ${userInfo?.prenom || "Utilisateur"} rejoint ${roomId}`);
 
     // --- Utilisateurs existants ---
     const existingUsers = Object.entries(rooms[roomId])
@@ -43,10 +34,7 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     socket.emit("existing-users", existingUsers);
 
     // --- Historique des messages ---
-    socket.emit(
-      "room-history",
-      roomMessages[roomId].map(formatForFront)
-    );
+    socket.emit("room-history", roomMessages[roomId]);
 
     // --- Notifier les autres ---
     socket.to(roomId).emit("user-joined", {
@@ -57,24 +45,21 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     // --- Message système JOIN ---
     const joinMessage = {
       type: "system",
-      text: `${userInfo.prenom || "Utilisateur"} a rejoint la room`,
+      message: `${userInfo?.prenom || "Utilisateur"} a rejoint la room`,
       files: [],
       user: {
         id: socket.id,
-        prenom: userInfo.prenom,
-        avatar: userInfo.avatar || "default.png",
+        prenom: userInfo?.prenom || "Utilisateur",
+        avatar: userInfo?.avatar || "default.png"
       },
       createdAt: new Date().toISOString(),
     };
 
     roomMessages[roomId].push(joinMessage);
-    io.to(roomId).emit("room-message", formatForFront(joinMessage));
+    io.to(roomId).emit("room-message", joinMessage);
 
     // --- Nombre de participants ---
-    io.to(roomId).emit(
-      "room-participant-count",
-      Object.keys(rooms[roomId]).length
-    );
+    io.to(roomId).emit("room-participant-count", Object.keys(rooms[roomId]).length);
   });
 
   // =========================
@@ -92,30 +77,30 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     // --- Message système LEAVE ---
     const leaveMessage = {
       type: "system",
-      text: `${userInfo.prenom || "Utilisateur"} a quitté la room`,
+      message: `${userInfo?.prenom || "Utilisateur"} a quitté la room`,
       files: [],
       user: {
         id: userId,
-        prenom: userInfo.prenom,
-        avatar: userInfo.avatar || "default.png",
+        prenom: userInfo?.prenom || "Utilisateur",
+        avatar: userInfo?.avatar || "default.png"
       },
       createdAt: new Date().toISOString(),
     };
 
     roomMessages[roomId].push(leaveMessage);
-    io.to(roomId).emit("room-message", formatForFront(leaveMessage));
+    io.to(roomId).emit("room-message", leaveMessage);
 
-    // --- Notifier les autres ---
+    // --- Notifier ---
     socket.to(roomId).emit("user-left", userId);
 
     // --- Nombre de participants ---
-    io.to(roomId).emit(
-      "room-participant-count",
-      Object.keys(rooms[roomId]).length
-    );
+    io.to(roomId).emit("room-participant-count", Object.keys(rooms[roomId]).length);
   };
 
-  socket.on("leave-room", ({ roomId }) => handleLeave(roomId, socket.id));
+  socket.on("leave-room", ({ roomId }) => {
+    handleLeave(roomId, socket.id);
+  });
+
   socket.on("disconnect", () => {
     for (const roomId of Object.keys(rooms)) {
       if (rooms[roomId][socket.id]) {
@@ -163,17 +148,19 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
 
     const payload = {
       type: "user",
-      text: message || "",
+      roomId,
+      message: message || "",
       files: files || [],
       user: {
-        id: senderId,
-        prenom: user?.prenom,
-        avatar: user?.avatar || "default.png",
+        id: user.id,
+        prenom: user.prenom || "Utilisateur",
+        avatar: user.avatar || "default.png",
       },
       createdAt: new Date().toISOString(),
     };
 
     roomMessages[roomId].push(payload);
-    io.to(roomId).emit("room-message", formatForFront(payload));
+    io.to(roomId).emit("room-message", payload);
   });
+
 };

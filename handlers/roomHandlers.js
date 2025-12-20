@@ -1,48 +1,101 @@
 module.exports = function registerRoomHandlers(io, socket, rooms, users) {
 
+  const roomMessages = {};       // roomId -> [messages]
+  const cleanupTimers = {};      // roomId -> timeout
+  const CLEANUP_DELAY = 30 * 60 * 1000; // 30 minutes
+  const MAX_PARTICIPANTS = 10;   // limite de participants par room
+
   // --- Rejoindre une room ---
   socket.on("join-room", ({ roomId, userInfo }) => {
     if (!roomId) return;
 
-    // Créer la room si elle n'existe pas
     if (!rooms[roomId]) rooms[roomId] = {};
+    if (!roomMessages[roomId]) roomMessages[roomId] = [];
 
-    // Sauvegarder les infos du user dans la room
+    const currentParticipants = Object.keys(rooms[roomId]).length;
+    if (currentParticipants >= MAX_PARTICIPANTS) {
+      socket.emit("room-full", { roomId, max: MAX_PARTICIPANTS });
+      return;
+    }
+
+    if (cleanupTimers[roomId]) {
+      clearTimeout(cleanupTimers[roomId]);
+      delete cleanupTimers[roomId];
+    }
+
+    // Ajouter le participant
     rooms[roomId][socket.id] = userInfo || {};
-
     socket.join(roomId);
-    console.log(`👤 ${userInfo?.prenom || "Utilisateur"} rejoint ${roomId}`);
 
-    // Obtenir les utilisateurs existants dans la room (sauf lui-même)
+    console.log(`${userInfo?.prenom || "Utilisateur"} rejoint ${roomId}`);
+
+    // Envoyer le nombre de participants à tous
+    const participantCount = Object.keys(rooms[roomId]).length;
+    io.to(roomId).emit("room-participant-count", participantCount);
+
+    // Notifier la room avec un message système
+    const joinPayload = {
+      type: "system",
+      message: `${userInfo?.prenom || "Utilisateur"} a rejoint la room`,
+      user: userInfo,
+      createdAt: new Date().toISOString(),
+    };
+    io.to(roomId).emit("room-message", joinPayload);
+
+    // Envoyer les utilisateurs existants
     const existingUsers = Object.entries(rooms[roomId])
       .filter(([id]) => id !== socket.id)
       .map(([id, info]) => ({ userId: id, userInfo: info }));
-
-    // Notifier les autres participants qu’un nouveau arrive
-    socket.to(roomId).emit("user-joined", { 
-      userId: socket.id, 
-      userInfo: rooms[roomId][socket.id] 
-    });
-
-    // Envoyer à l’utilisateur les utilisateurs déjà présents
     socket.emit("existing-users", existingUsers);
+
+    // Envoyer l'historique complet
+    socket.emit("room-history", roomMessages[roomId]);
   });
 
   // --- Quitter une room ---
-  socket.on("leave-room", ({ roomId }) => {
-    if (!roomId || !rooms[roomId] || !rooms[roomId][socket.id]) return;
+  const handleLeave = (roomId, userId) => {
+    if (!roomId || !rooms[roomId] || !rooms[roomId][userId]) return;
 
-    delete rooms[roomId][socket.id];
+    const userInfo = rooms[roomId][userId];
+    delete rooms[roomId][userId];
     socket.leave(roomId);
 
-    socket.to(roomId).emit("user-left", socket.id);
-    console.log(`🚪 ${socket.id} quitte ${roomId}`);
+    // Envoyer un message système
+    const leavePayload = {
+      type: "system",
+      message: `${userInfo?.prenom || "Utilisateur"} a quitté la room`,
+      user: userInfo,
+      createdAt: new Date().toISOString(),
+    };
+    io.to(roomId).emit("room-message", leavePayload);
 
-    // Supprimer la room si vide
-    if (Object.keys(rooms[roomId]).length === 0) delete rooms[roomId];
+    // Mettre à jour le nombre de participants
+    const participantCount = Object.keys(rooms[roomId]).length;
+    io.to(roomId).emit("room-participant-count", participantCount);
+
+    console.log(`${userId} quitte ${roomId}`);
+
+    // Dernier participant → planifier le nettoyage
+    if (participantCount === 0) {
+      cleanupTimers[roomId] = setTimeout(() => {
+        delete rooms[roomId];
+        delete roomMessages[roomId];
+        delete cleanupTimers[roomId];
+        console.log(`Room ${roomId} nettoyée`);
+      }, CLEANUP_DELAY);
+    }
+  };
+
+  socket.on("leave-room", ({ roomId }) => handleLeave(roomId, socket.id));
+  socket.on("disconnect", () => {
+    for (const roomId of Object.keys(rooms)) {
+      if (rooms[roomId][socket.id]) {
+        handleLeave(roomId, socket.id);
+      }
+    }
   });
 
-  // --- Offres WebRTC ---
+  // --- WebRTC signaling ---
   socket.on("offer", ({ offer, to }) => {
     io.to(to).emit("offer", { offer, from: socket.id });
   });
@@ -62,6 +115,7 @@ module.exports = function registerRoomHandlers(io, socket, rooms, users) {
     if (!senderId) return;
 
     const payload = {
+      type: "user",
       roomId,
       message: message || "",
       files: files || [],
@@ -74,9 +128,9 @@ module.exports = function registerRoomHandlers(io, socket, rooms, users) {
       createdAt: new Date().toISOString(),
     };
 
+    // Stocker le message
+    roomMessages[roomId].push(payload);
+
     io.to(roomId).emit("room-message", payload);
   });
-
-
-
 };

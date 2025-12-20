@@ -1,16 +1,17 @@
 module.exports = function registerRoomHandlers(io, socket, rooms) {
 
-  // Historique des messages par room
+  // Stockage mémoire des messages par room
   const roomMessages = {};
 
-  // --- Rejoindre une room ---
-  socket.on("join-room", ({ roomId, userInfo = {}, microOn }) => {
+  // =========================
+  // JOIN ROOM
+  // =========================
+  socket.on("join-room", ({ roomId, userInfo, microOn }) => {
     if (!roomId) return;
 
     if (!rooms[roomId]) rooms[roomId] = {};
     if (!roomMessages[roomId]) roomMessages[roomId] = [];
 
-    // microOn facultatif → true par défaut
     const micState = typeof microOn === "boolean" ? microOn : true;
 
     rooms[roomId][socket.id] = {
@@ -20,11 +21,9 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
 
     socket.join(roomId);
 
-    console.log(
-      `${userInfo?.prenom || "Utilisateur"} rejoint ${roomId} (micro: ${micState})`
-    );
+    console.log(`👤 ${userInfo?.prenom || "Utilisateur"} rejoint ${roomId}`);
 
-    // --- utilisateurs existants ---
+    // --- Liste des utilisateurs déjà présents ---
     const existingUsers = Object.entries(rooms[roomId])
       .filter(([id]) => id !== socket.id)
       .map(([id, info]) => ({
@@ -32,53 +31,69 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
         userInfo: info,
       }));
 
-    // envoyer les users existants au nouveau
     socket.emit("existing-users", existingUsers);
 
-    // notifier les autres
+    // --- Historique des messages ---
+    socket.emit("room-history", roomMessages[roomId]);
+
+    // --- Notifier les autres ---
     socket.to(roomId).emit("user-joined", {
       userId: socket.id,
       userInfo: rooms[roomId][socket.id],
     });
 
-    // --- envoyer l'historique des messages ---
-    socket.emit("room-history", roomMessages[roomId]);
-
-    // message système (optionnel)
-    io.to(roomId).emit("room-message", {
+    // --- Message système ---
+    const joinMessage = {
       type: "system",
       message: `${userInfo?.prenom || "Utilisateur"} a rejoint la room`,
-      user: rooms[roomId][socket.id],
       createdAt: new Date().toISOString(),
+    };
+
+    roomMessages[roomId].push(joinMessage);
+    io.to(roomId).emit("room-message", joinMessage);
+
+    // --- Nombre de participants ---
+    io.to(roomId).emit("room-participant-count", {
+      roomId,
+      count: Object.keys(rooms[roomId]).length,
     });
   });
 
-  // --- Quitter une room ---
+  // =========================
+  // LEAVE ROOM / DISCONNECT
+  // =========================
   const handleLeave = (roomId, userId) => {
-    if (!roomId || !rooms[roomId] || !rooms[roomId][userId]) return;
+    if (!rooms[roomId] || !rooms[roomId][userId]) return;
 
     const userInfo = rooms[roomId][userId];
     delete rooms[roomId][userId];
-
     socket.leave(roomId);
 
-    io.to(roomId).emit("user-left", userId);
+    console.log(`🚪 ${userId} quitte ${roomId}`);
 
-    io.to(roomId).emit("room-message", {
+    // Message système
+    const leaveMessage = {
       type: "system",
       message: `${userInfo?.prenom || "Utilisateur"} a quitté la room`,
-      user: userInfo,
       createdAt: new Date().toISOString(),
-    });
+    };
 
-    // si room vide → nettoyage simple
-    if (Object.keys(rooms[roomId]).length === 0) {
-      delete rooms[roomId];
-      delete roomMessages[roomId];
-    }
+    roomMessages[roomId].push(leaveMessage);
+    io.to(roomId).emit("room-message", leaveMessage);
+
+    // Notifier
+    socket.to(roomId).emit("user-left", userId);
+
+    // Nombre participants
+    io.to(roomId).emit("room-participant-count", {
+      roomId,
+      count: Object.keys(rooms[roomId]).length,
+    });
   };
 
-  socket.on("leave-room", ({ roomId }) => handleLeave(roomId, socket.id));
+  socket.on("leave-room", ({ roomId }) => {
+    handleLeave(roomId, socket.id);
+  });
 
   socket.on("disconnect", () => {
     for (const roomId of Object.keys(rooms)) {
@@ -88,9 +103,11 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     }
   });
 
-  // --- Mise à jour micro ---
+  // =========================
+  // MICROPHONE
+  // =========================
   socket.on("update-micro", ({ roomId, microOn }) => {
-    if (!roomId || !rooms[roomId] || !rooms[roomId][socket.id]) return;
+    if (!rooms[roomId] || !rooms[roomId][socket.id]) return;
 
     rooms[roomId][socket.id].microOn = microOn;
 
@@ -99,12 +116,12 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
       microOn,
     });
 
-    console.log(
-      `${rooms[roomId][socket.id].prenom || "Utilisateur"} micro: ${microOn}`
-    );
+    console.log(`🎙 ${socket.id} micro: ${microOn}`);
   });
 
-  // --- WebRTC ---
+  // =========================
+  // WEBRTC SIGNALING
+  // =========================
   socket.on("offer", ({ offer, to }) => {
     io.to(to).emit("offer", { offer, from: socket.id });
   });
@@ -117,9 +134,11 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     io.to(to).emit("ice-candidate", { candidate, from: socket.id });
   });
 
-  // --- Messages ---
+  // =========================
+  // CHAT MESSAGE
+  // =========================
   socket.on("room-message", ({ senderId, roomId, message, files, user }) => {
-    if (!roomId || !rooms[roomId] || !senderId) return;
+    if (!rooms[roomId] || !rooms[roomId][socket.id]) return;
 
     const payload = {
       type: "user",

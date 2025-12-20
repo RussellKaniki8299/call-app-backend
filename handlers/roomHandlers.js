@@ -1,6 +1,8 @@
 module.exports = function registerRoomHandlers(io, socket, rooms) {
 
-  // Stockage mémoire des messages par room
+  // =========================
+  // Mémoire : messages par room
+  // =========================
   const roomMessages = {};
 
   // =========================
@@ -14,16 +16,22 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
 
     const micState = typeof microOn === "boolean" ? microOn : true;
 
+    // Enregistrer l’utilisateur
     rooms[roomId][socket.id] = {
-      ...userInfo,
+      id: socket.id,
+      prenom: userInfo.prenom,
+      nom: userInfo.nom,
+      avatar: userInfo.avatar || "default.png",
       microOn: micState,
     };
 
     socket.join(roomId);
 
-    console.log(`👤 ${userInfo?.prenom || "Utilisateur"} rejoint ${roomId}`);
+    console.log(`👤 ${userInfo.prenom} rejoint ${roomId}`);
 
-    // --- Utilisateurs existants ---
+    // =========================
+    // Utilisateurs existants
+    // =========================
     const existingUsers = Object.entries(rooms[roomId])
       .filter(([id]) => id !== socket.id)
       .map(([id, info]) => ({
@@ -33,25 +41,32 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
 
     socket.emit("existing-users", existingUsers);
 
-    // --- Historique ---
+    // =========================
+    // Historique des messages
+    // =========================
     socket.emit("room-history", roomMessages[roomId]);
 
-    // --- Notifier les autres ---
+    // =========================
+    // Notifier les autres (user-joined)
+    // =========================
     socket.to(roomId).emit("user-joined", {
       userId: socket.id,
       userInfo: rooms[roomId][socket.id],
     });
 
-    // --- Message système JOIN ---
+    // =========================
+    // Message système JOIN
+    // =========================
     const joinMessage = {
+      id: Date.now(),
       type: "system",
-      message: `${userInfo?.prenom || "Utilisateur"} a rejoint la room`,
+      text: `${userInfo.prenom} a rejoint la room`,
       files: [],
-      sender: {
+      user: {
         id: socket.id,
-        nom: userInfo?.nom,
-        prenom: userInfo?.prenom,
-        avatar: userInfo?.avatar,
+        prenom: userInfo.prenom,
+        nom: userInfo.nom,
+        avatar: userInfo.avatar || "default.png",
       },
       createdAt: new Date().toISOString(),
     };
@@ -59,7 +74,9 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     roomMessages[roomId].push(joinMessage);
     io.to(roomId).emit("room-message", joinMessage);
 
-    // ✅ NOMBRE SEUL
+    // =========================
+    // Nombre de participants
+    // =========================
     io.to(roomId).emit(
       "room-participant-count",
       Object.keys(rooms[roomId]).length
@@ -76,17 +93,19 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     delete rooms[roomId][userId];
     socket.leave(roomId);
 
-    console.log(`🚪 ${userId} quitte ${roomId}`);
+    console.log(`🚪 ${userInfo.prenom} quitte ${roomId}`);
 
+    // Message système LEAVE
     const leaveMessage = {
+      id: Date.now(),
       type: "system",
-      message: `${userInfo?.prenom || "Utilisateur"} a quitté la room`,
+      text: `${userInfo.prenom} a quitté la room`,
       files: [],
-      sender: {
+      user: {
         id: userId,
-        nom: userInfo?.nom,
-        prenom: userInfo?.prenom,
-        avatar: userInfo?.avatar,
+        prenom: userInfo.prenom,
+        nom: userInfo.nom,
+        avatar: userInfo.avatar || "default.png",
       },
       createdAt: new Date().toISOString(),
     };
@@ -96,7 +115,6 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
 
     socket.to(roomId).emit("user-left", userId);
 
-    // ✅ NOMBRE SEUL
     io.to(roomId).emit(
       "room-participant-count",
       Object.keys(rooms[roomId]).length
@@ -130,7 +148,7 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
   });
 
   // =========================
-  // WEBRTC
+  // WEBRTC SIGNALING
   // =========================
   socket.on("offer", ({ offer, to }) => {
     io.to(to).emit("offer", { offer, from: socket.id });
@@ -145,21 +163,21 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
   });
 
   // =========================
-  // CHAT
+  // CHAT MESSAGE
   // =========================
   socket.on("room-message", ({ senderId, roomId, message, files, user }) => {
     if (!rooms[roomId] || !rooms[roomId][socket.id]) return;
 
     const payload = {
+      id: Date.now(),
       type: "user",
-      roomId,
-      message: message || "",
+      text: message || "",
       files: files || [],
-      sender: {
+      user: {
         id: senderId,
-        nom: user?.nom,
         prenom: user?.prenom,
-        avatar: user?.avatar,
+        nom: user?.nom,
+        avatar: user?.avatar || "default.png",
       },
       createdAt: new Date().toISOString(),
     };

@@ -7,7 +7,7 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
   // JOIN ROOM
   // =========================
   socket.on("join-room", ({ roomId, userInfo, microOn }) => {
-    if (!roomId) return;
+    if (!roomId || !userInfo) return;
 
     if (!rooms[roomId]) rooms[roomId] = {};
     if (!roomMessages[roomId]) roomMessages[roomId] = [];
@@ -23,7 +23,7 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
 
     console.log(`👤 ${userInfo?.prenom || "Utilisateur"} rejoint ${roomId}`);
 
-    // --- Liste des utilisateurs déjà présents ---
+    // --- Utilisateurs existants ---
     const existingUsers = Object.entries(rooms[roomId])
       .filter(([id]) => id !== socket.id)
       .map(([id, info]) => ({
@@ -42,10 +42,17 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
       userInfo: rooms[roomId][socket.id],
     });
 
-    // --- Message système ---
+    // --- Message système JOIN ---
     const joinMessage = {
       type: "system",
       message: `${userInfo?.prenom || "Utilisateur"} a rejoint la room`,
+      files: [],
+      sender: {
+        id: socket.id,
+        nom: userInfo?.nom,
+        prenom: userInfo?.prenom,
+        avatar: userInfo?.avatar,
+      },
       createdAt: new Date().toISOString(),
     };
 
@@ -71,20 +78,27 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
 
     console.log(`🚪 ${userId} quitte ${roomId}`);
 
-    // Message système
+    // --- Message système LEAVE ---
     const leaveMessage = {
       type: "system",
       message: `${userInfo?.prenom || "Utilisateur"} a quitté la room`,
+      files: [],
+      sender: {
+        id: userId,
+        nom: userInfo?.nom,
+        prenom: userInfo?.prenom,
+        avatar: userInfo?.avatar,
+      },
       createdAt: new Date().toISOString(),
     };
 
     roomMessages[roomId].push(leaveMessage);
     io.to(roomId).emit("room-message", leaveMessage);
 
-    // Notifier
+    // --- Notifier ---
     socket.to(roomId).emit("user-left", userId);
 
-    // Nombre participants
+    // --- Nombre de participants ---
     io.to(roomId).emit("room-participant-count", {
       roomId,
       count: Object.keys(rooms[roomId]).length,

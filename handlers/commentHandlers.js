@@ -1,4 +1,7 @@
 module.exports = function registerCommentHandlers(io, socket, users) {
+  /**
+   * Émettre un nouveau commentaire/reply à un post
+   */
   socket.on("send-post-reply", (data) => {
     const { replyId, postId, user, content, fichiers = [], date_creation } = data;
 
@@ -17,7 +20,10 @@ module.exports = function registerCommentHandlers(io, socket, users) {
       },
       description: content,
       fichiers,
-      date_creation: date_creation || new Date().toISOString(), // <-- utiliser la date envoyée
+      // Date formatée pour le front
+      date_creation: date_creation
+        ? new Date(date_creation).toISOString().replace('T', ' ').split('.')[0]
+        : new Date().toISOString().replace('T', ' ').split('.')[0],
       type: "reply",
       nb_like: 0,
       nb_comment: 0,
@@ -31,18 +37,27 @@ module.exports = function registerCommentHandlers(io, socket, users) {
     console.log(`[Reply] Nouveau reply sur le post ${postId} par ${user.id} (replyId: ${replyId})`);
   });
 
+  /**
+   * Rejoindre la room d'un post pour recevoir ses replies
+   */
   socket.on("join-post-room", (postId) => {
     if (!postId) return;
     socket.join(postId.toString());
     console.log(`[Post Room] ${socket.id} rejoint la room du post ${postId}`);
   });
 
+  /**
+   * Supprimer un reply
+   */
   socket.on("delete-post-reply", ({ replyId, postId }) => {
     if (!replyId || !postId) return;
     io.to(postId.toString()).emit("delete-post-reply", { replyId });
     console.log(`[Reply] Reply ${replyId} supprimé du post ${postId}`);
   });
 
+  /**
+   * Modifier un reply
+   */
   socket.on("edit-post-reply", ({ replyId, postId, content }) => {
     if (!replyId || !postId || !content) return;
     io.to(postId.toString()).emit("edit-post-reply", { replyId, content });

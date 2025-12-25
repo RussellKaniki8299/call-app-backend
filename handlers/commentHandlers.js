@@ -1,29 +1,37 @@
 module.exports = function registerCommentHandlers(io, socket, users) {
   /**
    * Émettre un nouveau commentaire/reply à un post
-   * replyId doit être fourni côté client
    */
   socket.on("send-post-reply", (data) => {
-    const { replyId, postId, fromUserId, content, fichiers = [], avatar = "", time } = data;
-    if (!replyId || !postId || !fromUserId || !content) return;
+    const { replyId, postId, user, content, fichiers = [], time } = data;
+
+    if (!replyId || !postId || !user || !content) return;
 
     const replyData = {
-      replyId,
+      id: replyId,          // id du reply
       postId,
-      fromUserId,
-      content,
+      user: {
+        id: user.id,
+        pseudo: user.pseudo,
+        prenom: user.prenom,
+        nom: user.nom,
+        avatar: user.avatar || '',
+        type_compte: user.type_compte || 'standard',
+      },
+      description: content,
       fichiers,
-      avatar,
-      time: time || new Date().toLocaleTimeString("fr-FR", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      }),
+      date_creation: time || new Date().toISOString(),
       type: "reply",
+      nb_like: 0,
+      nb_comment: 0,
+      nb_repost: 0,
+      nb_vue: 0,
+      repost_existe: false,
+      fichier_existe: fichiers.length > 0,
     };
 
     io.to(postId.toString()).emit("new-post-reply", replyData);
-    console.log(`[Reply] Nouveau reply sur le post ${postId} par ${fromUserId} (replyId: ${replyId})`);
+    console.log(`[Reply] Nouveau reply sur le post ${postId} par ${user.id} (replyId: ${replyId})`);
   });
 
   /**

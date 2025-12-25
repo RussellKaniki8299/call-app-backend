@@ -1,13 +1,14 @@
 module.exports = function registerCommentHandlers(io, socket, users) {
   /**
    * Émettre un nouveau commentaire/reply à un post
+   * replyId doit être fourni côté client
    */
   socket.on("send-post-reply", (data) => {
-    const { postId, fromUserId, content, fichiers = [], avatar = "", time } = data;
-    if (!postId || !fromUserId || !content) return;
+    const { replyId, postId, fromUserId, content, fichiers = [], avatar = "", time } = data;
+    if (!replyId || !postId || !fromUserId || !content) return;
 
     const replyData = {
-      replyId: Math.random().toString(),
+      replyId,
       postId,
       fromUserId,
       content,
@@ -22,7 +23,7 @@ module.exports = function registerCommentHandlers(io, socket, users) {
     };
 
     io.to(postId.toString()).emit("new-post-reply", replyData);
-    console.log(`[Reply] Nouveau reply sur le post ${postId} par ${fromUserId}`);
+    console.log(`[Reply] Nouveau reply sur le post ${postId} par ${fromUserId} (replyId: ${replyId})`);
   });
 
   /**

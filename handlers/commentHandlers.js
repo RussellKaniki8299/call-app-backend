@@ -5,7 +5,7 @@ module.exports = function registerCommentHandlers(io, socket, users) {
   socket.on("send-post-reply", (data) => {
     const { replyId, postId, user, content, fichiers = [], date_creation } = data;
 
-    if (!replyId || !postId || !user || !content) return;
+    if (!replyId || !postId || !user ) return;
 
     const replyData = {
       id: replyId,

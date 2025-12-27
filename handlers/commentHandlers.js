@@ -1,11 +1,31 @@
+/**
+ * Formatage de la date en heure locale (sans UTC)
+ * Format : YYYY-MM-DD HH:mm:ss
+ */
+function formatDateLocal(date = new Date()) {
+  const pad = (n) => n.toString().padStart(2, '0');
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+         `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 module.exports = function registerCommentHandlers(io, socket, users) {
+
   /**
-   * Émettre un nouveau commentaire/reply à un post
+   * Émettre un nouveau commentaire / reply à un post
    */
   socket.on("send-post-reply", (data) => {
-    const { replyId, postId, user, content, fichiers = [], date_creation } = data;
+    const {
+      replyId,
+      postId,
+      user,
+      content,
+      fichiers = [],
+      date_creation
+    } = data;
 
-    if (!replyId || !postId || !user ) return;
+    // Sécurité minimale
+    if (!replyId || !postId || !user) return;
 
     const replyData = {
       id: replyId,
@@ -20,10 +40,12 @@ module.exports = function registerCommentHandlers(io, socket, users) {
       },
       description: content,
       fichiers,
-      // Date formatée pour le front
+
+      // Date locale correcte (plus de -1h)
       date_creation: date_creation
-        ? new Date(date_creation).toISOString().replace('T', ' ').split('.')[0]
-        : new Date().toISOString().replace('T', ' ').split('.')[0],
+        ? formatDateLocal(new Date(date_creation))
+        : formatDateLocal(),
+
       type: "reply",
       nb_like: 0,
       nb_comment: 0,
@@ -34,16 +56,19 @@ module.exports = function registerCommentHandlers(io, socket, users) {
     };
 
     io.to(postId.toString()).emit("new-post-reply", replyData);
-    console.log(`[Reply] Nouveau reply sur le post ${postId} par ${user.id} (replyId: ${replyId})`);
+
+    console.log(
+      `[Reply] Nouveau reply ${replyId} sur le post ${postId} par ${user.id} à ${replyData.date_creation}`
+    );
   });
 
   /**
-   * Rejoindre la room d'un post pour recevoir ses replies
+   * Rejoindre la room d'un post
    */
   socket.on("join-post-room", (postId) => {
     if (!postId) return;
     socket.join(postId.toString());
-    console.log(`[Post Room] ${socket.id} rejoint la room du post ${postId}`);
+    console.log(`[Post Room] ${socket.id} a rejoint le post ${postId}`);
   });
 
   /**

@@ -17,34 +17,36 @@ module.exports = function registerChatHandlers(io, socket, users) {
    * + signal update-correspondant-list
    */
   function emitPrivateMessage(io, fromUserId, toUserId, payloadForSender, payloadForRecipient) {
-    
+
     // Message pour destinataire
     io.to(toUserId.toString()).emit("receive-private-message", payloadForRecipient);
 
     // Message pour expéditeur
     io.to(fromUserId.toString()).emit("receive-private-message", payloadForSender);
 
-    // --- SIGNALS (pas de data !)
+    // --- SIGNALS (pas de data)
     io.to(toUserId.toString()).emit("update-correspondant-list");
     io.to(fromUserId.toString()).emit("update-correspondant-list");
 
     console.log(`[Chat privé] ${fromUserId} → ${toUserId}`);
   }
 
-  // --- Envoi message privé texte/audio/fichiers groupés
+  // --- Envoi message privé (texte / audio / fichiers / story)
   socket.on("send-private-message", (data) => {
 
     const {
-      toUserId, 
-      fromUserId, 
-      message, 
-      fichiers, 
+      toUserId,
+      fromUserId,
+      message,
+      fichiers,
       msg_audio,
-      time, 
-      avatar, 
-      msg_id, 
-      preview, 
-      reply_to
+      time,
+      avatar,
+      msg_id,
+      preview,
+      reply_to,
+      story_id,
+      type_msg
     } = data;
 
     if (!toUserId || !fromUserId) return;
@@ -59,6 +61,11 @@ module.exports = function registerChatHandlers(io, socket, users) {
       avatar: avatar || "",
       preview: preview || false,
       reply_to: reply_to || 0,
+
+      // ✅ AJOUT
+      story_id: story_id || null,
+      type_msg: type_msg || "text",
+
       time: time || new Date().toLocaleTimeString("fr-FR", {
         hour: "2-digit",
         minute: "2-digit",
@@ -83,6 +90,7 @@ module.exports = function registerChatHandlers(io, socket, users) {
 
   // --- Envoi fichier direct
   socket.on("send-file", (data) => {
+
     const {
       toUserId,
       fromUserId,
@@ -92,7 +100,9 @@ module.exports = function registerChatHandlers(io, socket, users) {
       avatar,
       msg_id,
       preview,
-      reply_to
+      reply_to,
+      story_id,
+      type_msg
     } = data;
 
     if (!toUserId || !fromUserId || !file) return;
@@ -107,6 +117,11 @@ module.exports = function registerChatHandlers(io, socket, users) {
       avatar: avatar || "",
       preview: preview || false,
       reply_to: reply_to || 0,
+
+      // ✅ AJOUT
+      story_id: story_id || null,
+      type_msg: type_msg || "file",
+
       content: "",
       time: new Date().toLocaleTimeString("fr-FR", {
         hour: "2-digit",
@@ -140,7 +155,6 @@ module.exports = function registerChatHandlers(io, socket, users) {
 
     io.to(toUserId.toString()).emit("messages-read", { byUserId: fromUserId });
 
-    // signal refresh list
     io.to(toUserId.toString()).emit("update-correspondant-list");
     io.to(fromUserId.toString()).emit("update-correspondant-list");
 
@@ -158,32 +172,26 @@ module.exports = function registerChatHandlers(io, socket, users) {
     socket.broadcast.emit("new-message", msg);
   });
 
-
-  // --- Suppression de message (self ou all)
+  // --- Suppression de message
   socket.on("delete-message", ({ messageId, fromUserId, toUserId, mode }) => {
     if (!messageId || !fromUserId || !toUserId || !mode) return;
 
-    // Suppression pour TOUS
     if (mode === "all") {
       const payload = { messageId };
 
       io.to(fromUserId.toString()).emit("delete-message", payload);
       io.to(toUserId.toString()).emit("delete-message", payload);
 
-      // --- Mise à jour liste correspondants
       io.to(fromUserId.toString()).emit("update-correspondant-list");
       io.to(toUserId.toString()).emit("update-correspondant-list");
 
       console.log(`[Message supprimé POUR TOUS] ${messageId} | ${fromUserId} ↔ ${toUserId}`);
     }
 
-    // Suppression pour SOI UNIQUEMENT
     if (mode === "self") {
       const payload = { messageId, selfDelete: true };
 
       io.to(fromUserId.toString()).emit("delete-message", payload);
-
-      // --- Mise à jour liste correspondants pour l'expéditeur seulement
       io.to(fromUserId.toString()).emit("update-correspondant-list");
 
       console.log(`[Message supprimé POUR SOI] ${messageId} | ${fromUserId}`);
@@ -194,15 +202,11 @@ module.exports = function registerChatHandlers(io, socket, users) {
   socket.on("edit-message", ({ messageId, newContent, fromUserId, toUserId }) => {
     if (!messageId || !newContent || !fromUserId || !toUserId) return;
 
-    const payload = {
-      messageId,
-      newContent,
-    };
+    const payload = { messageId, newContent };
 
     io.to(fromUserId.toString()).emit("edit-message", payload);
     io.to(toUserId.toString()).emit("edit-message", payload);
 
-    // --- Mise à jour liste correspondants
     io.to(fromUserId.toString()).emit("update-correspondant-list");
     io.to(toUserId.toString()).emit("update-correspondant-list");
 

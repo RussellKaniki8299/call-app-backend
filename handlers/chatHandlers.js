@@ -62,7 +62,6 @@ module.exports = function registerChatHandlers(io, socket, users) {
       preview: preview || false,
       reply_to: reply_to || 0,
 
-      // ✅ AJOUT
       story_id: story_id || null,
       type_msg: type_msg || "text",
 
@@ -118,7 +117,6 @@ module.exports = function registerChatHandlers(io, socket, users) {
       preview: preview || false,
       reply_to: reply_to || 0,
 
-      // ✅ AJOUT
       story_id: story_id || null,
       type_msg: type_msg || "file",
 

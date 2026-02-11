@@ -1,8 +1,6 @@
-module.exports = function registerRoomHandlers(io, socket, rooms) {
+module.exports = function registerRoomHandlers(io, socket, rooms, users, roomMessages){
 
-  // Stockage mémoire des messages utilisateurs par room
-  const roomMessages = {};
-
+ 
   // =========================
   // JOIN ROOM
   // =========================
@@ -78,14 +76,7 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     handleLeave(roomId, socket.id);
   });
 
-  socket.on("disconnect", () => {
-    for (const roomId of Object.keys(rooms)) {
-      if (rooms[roomId][socket.id]) {
-        handleLeave(roomId, socket.id);
-      }
-    }
-  });
-
+ 
   // =========================
   // MICROPHONE
   // =========================
@@ -104,10 +95,12 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
   // WEBRTC
   // =========================
   socket.on("offer", ({ offer, to }) => {
+    if (!to) return;
     io.to(to).emit("offer", { offer, from: socket.id });
   });
 
   socket.on("answer", ({ answer, to }) => {
+    if (!to) return;
     io.to(to).emit("answer", { answer, from: socket.id });
   });
 
@@ -115,29 +108,34 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     io.to(to).emit("ice-candidate", { candidate, from: socket.id });
   });
 
-  socket.on("call-cancelled", ({ to }) => {
-    if (!to) return;
-    io.to(to).emit("call-cancelled", { from: socket.id });
-  });
+  socket.on("call-cancelled", ({ toUserId }) => {
+    const targetSocketId = users[toUserId];
+    if (!targetSocketId) return;
 
-  socket.on("call-cancelled", ({ to }) => {
-    if (!to) return;
-    io.to(to).emit("call-cancelled", { from: socket.id });
-  });
-
-  socket.on("call-rejected", ({ to }) => {
-    if (!to) return;
-    io.to(to).emit("call-rejected", { from: socket.id });
-  });
-
-  socket.on("call-ended", ({ to }) => {
-    if (!to) return;
-
-    io.to(to).emit("call-ended", {
-      from: socket.id,
-      timestamp: new Date().toISOString()
+    io.to(targetSocketId).emit("call-cancelled", {
+      from: socket.id
     });
   });
+
+  socket.on("call-rejected", ({ toUserId }) => {
+    const targetSocketId = users[toUserId];
+    if (!targetSocketId) return;
+
+    io.to(targetSocketId).emit("call-rejected", {
+      from: socket.id
+    });
+  });
+
+  socket.on("call-ended", ({ toUserId, roomId }) => {
+    const targetSocketId = users[toUserId];
+    if (!targetSocketId) return;
+
+    io.to(targetSocketId).emit("call-ended", {
+      from: socket.id,
+      roomId
+    });
+  });
+
 
   // =========================
   // CHAT

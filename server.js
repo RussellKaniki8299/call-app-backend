@@ -37,7 +37,8 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 // Stockage mémoire
 const users = {}; // userId -> socketId
-const rooms = {}; // roomId -> { socketId: userInfo }
+const rooms = {};
+const roomMessages = {};
 
 // Route test
 app.get("/", (req, res) => {
@@ -115,7 +116,7 @@ io.on("connection", (socket) => {
 
   // Handlers
   registerCallHandlers(io, socket, users);
-  registerRoomHandlers(io, socket, rooms, users);
+  registerRoomHandlers(io, socket, rooms, users, roomMessages);
   registerChatHandlers(io, socket, users);
   registerCommentHandlers(io, socket, users);
   registerNotificationHandlers(io, socket, users);

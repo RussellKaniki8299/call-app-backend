@@ -5,7 +5,6 @@ const registerNotificationHandlers = require("./notificationHandlers");
 const registerFriendsRequestHandlers = require("./friendsRequestHandlers");
 const registerUnreadMessagesHandlers = require("./unreadMessagesHandlers");
 const registerCommentHandlers = require("./commentHandlers");
-// const registerLiveHandlers = require("./liveHandlers");
 
 module.exports = {
   registerCallHandlers,
@@ -15,5 +14,4 @@ module.exports = {
   registerFriendsRequestHandlers,
   registerUnreadMessagesHandlers,
   registerCommentHandlers,
-  // registerLiveHandlers, 
 };

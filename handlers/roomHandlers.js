@@ -115,6 +115,30 @@ module.exports = function registerRoomHandlers(io, socket, rooms) {
     io.to(to).emit("ice-candidate", { candidate, from: socket.id });
   });
 
+  socket.on("call-cancelled", ({ to }) => {
+    if (!to) return;
+    io.to(to).emit("call-cancelled", { from: socket.id });
+  });
+
+  socket.on("call-cancelled", ({ to }) => {
+    if (!to) return;
+    io.to(to).emit("call-cancelled", { from: socket.id });
+  });
+
+  socket.on("call-rejected", ({ to }) => {
+    if (!to) return;
+    io.to(to).emit("call-rejected", { from: socket.id });
+  });
+
+  socket.on("call-ended", ({ to }) => {
+    if (!to) return;
+
+    io.to(to).emit("call-ended", {
+      from: socket.id,
+      timestamp: new Date().toISOString()
+    });
+  });
+
   // =========================
   // CHAT
   // =========================

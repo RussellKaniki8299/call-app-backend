@@ -1,0 +1,305 @@
+import React, { useRef, useEffect, useState } from "react";
+import { io } from "socket.io-client";
+import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Volume2, Link } from "react-feather";
+
+const socket = io("https://call-app-backend-kqzr.onrender.com");
+
+const styles = {
+  container: { width: "100vw", height: "100vh", backgroundColor: "#121212", color: "white", display: "flex", flexDirection: "column", justifyContent: "space-between", fontFamily: "sans-serif" },
+  videoGrid: { display: "grid", gap: "10px", padding: "10px", flexGrow: 1, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" },
+  videoWrapper: { position: "relative", borderRadius: "12px", overflow: "hidden", boxShadow: "0 2px 10px rgba(0,0,0,0.5)" },
+  video: { width: "100%", height: "100%", objectFit: "cover", borderRadius: "12px" },
+  localLabel: { position: "absolute", bottom: "8px", left: "8px", backgroundColor: "rgba(0,0,0,0.5)", padding: "2px 6px", borderRadius: "6px", fontSize: "12px" },
+  controls: { position: "fixed", bottom: "20px", left: "50%", transform: "translateX(-50%)", display: "flex", gap: "20px", backgroundColor: "rgba(0,0,0,0.3)", padding: "15px 20px", borderRadius: "50px", alignItems: "center", boxShadow: "0 2px 20px rgba(0,0,0,0.5)" },
+  inputRoom: { padding: "10px", borderRadius: "6px", border: "none", fontSize: "16px", marginRight: "10px" },
+  copyBtn: { backgroundColor: "#25D366", color: "white", border: "none", borderRadius: "6px", padding: "8px 12px", cursor: "pointer" },
+  activeCall: { backgroundColor: "red", color: "white" },
+  inactiveCall: { backgroundColor: "#25D366", color: "white" },
+  toggleBtn: { backgroundColor: "#eee", color: "#333" },
+};
+
+function App() {
+  const [localStream, setLocalStream] = useState(null);
+  const [peers, setPeers] = useState({});
+  const [callActive, setCallActive] = useState(false);
+  const [micOn, setMicOn] = useState(true);
+  const [cameraOn, setCameraOn] = useState(true);
+  const [roomId, setRoomId] = useState("");
+  const [generatedLink, setGeneratedLink] = useState("");
+  const [roomCreated, setRoomCreated] = useState(false);
+
+  const localVideo = useRef();
+  const pcs = useRef({});
+
+  // Lire roomId depuis l'URL au chargement
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const room = params.get("room");
+    if (room) {
+      setRoomId(room);
+      setRoomCreated(true); // room déjà existante via lien
+    }
+  }, []);
+
+  // Socket events
+  useEffect(() => {
+    socket.on("user-joined", async (userId) => {
+      if (!localStream) return;
+      const pc = createPeerConnection(userId);
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit("offer", { offer, to: userId });
+    });
+
+    socket.on("offer", async ({ offer, from }) => {
+      if (!localStream) return;
+      const pc = createPeerConnection(from);
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("answer", { answer, to: from });
+    });
+
+    socket.on("answer", async ({ answer, from }) => {
+      const pc = pcs.current[from];
+      if (pc) {
+        if (pc.signalingState === "have-local-offer") {
+          await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        }
+      }
+    });
+
+    socket.on("ice-candidate", async ({ candidate, from }) => {
+      const pc = pcs.current[from];
+      if (pc && candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    });
+
+    socket.on("user-left", (userId) => {
+      if (pcs.current[userId]) pcs.current[userId].close();
+      setPeers(prev => {
+        const copy = { ...prev };
+        delete copy[userId];
+        return copy;
+      });
+      delete pcs.current[userId];
+    });
+  }, [localStream]);
+
+  useEffect(() => {
+    if (localVideo.current && localStream) {
+      localVideo.current.srcObject = localStream;
+      localVideo.current.muted = true;
+    }
+  }, [localStream]);
+
+  const createPeerConnection = (socketId) => {
+    const pc = new RTCPeerConnection();
+    pcs.current[socketId] = pc;
+
+    pc.ontrack = (event) => {
+      setPeers(prev => ({ ...prev, [socketId]: event.streams[0] }));
+    };
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit("ice-candidate", { candidate: event.candidate, to: socketId });
+      }
+    };
+
+    return pc;
+  };
+
+  // Étapes : créer room
+  const createRoom = () => {
+    const newRoom = Math.random().toString(36).substring(2, 10);
+    setRoomId(newRoom);
+    const newUrl = `${window.location.origin}?room=${newRoom}`;
+    window.history.replaceState(null, null, newUrl);
+    setGeneratedLink(newUrl);
+    setRoomCreated(true);
+  };
+
+  // Étapes : rejoindre l’appel
+  const joinCall = async () => {
+    if (!roomId) return alert("Room invalide !");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setLocalStream(stream);
+      setCallActive(true);
+      socket.emit("join-room", { roomId });
+    } catch (err) {
+      alert("⚠️ Autorise caméra et micro !");
+      console.error(err);
+    }
+  };
+
+  const endCall = () => {
+    localStream?.getTracks().forEach(track => track.stop());
+    setLocalStream(null);
+    setCallActive(false);
+    Object.values(pcs.current).forEach(pc => pc.close());
+    pcs.current = {};
+    setPeers({});
+    socket.emit("leave-room", { roomId });
+  };
+
+  const toggleMic = () => {
+    localStream.getAudioTracks()[0].enabled = !micOn;
+    setMicOn(!micOn);
+  };
+
+  const toggleCamera = () => {
+    localStream.getVideoTracks()[0].enabled = !cameraOn;
+    setCameraOn(!cameraOn);
+  };
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(generatedLink);
+    alert("Lien copié !");
+  };
+
+  return (
+    <div style={styles.container}>
+      {!roomCreated && (
+        <div style={{ textAlign: "center", margin: "20px" }}>
+          <button onClick={createRoom} style={styles.inactiveCall}>
+            📁 Créer la room
+          </button>
+        </div>
+      )}
+
+      {roomCreated && !callActive && (
+        <div style={{ textAlign: "center", margin: "20px" }}>
+          <div style={{ marginBottom: "10px" }}>Lien de la room : {generatedLink}</div>
+          <button onClick={copyLink} style={styles.copyBtn}>📋 Copier le lien</button>
+          <button onClick={joinCall} style={{ ...styles.inactiveCall, marginLeft: "10px" }}>📞 Rejoindre l’appel</button>
+        </div>
+      )}
+
+      <div style={styles.videoGrid}>
+        {localStream && (
+          <div style={styles.videoWrapper}>
+            <video ref={localVideo} autoPlay playsInline style={styles.video} />
+            <div style={styles.localLabel}>Vous</div>
+          </div>
+        )}
+        {Object.entries(peers).map(([id, stream]) => (
+          <PeerVideo key={id} stream={stream} />
+        ))}
+      </div>
+
+      {callActive && (
+        <div style={styles.controls}>
+          <ControlButton onClick={endCall} style={styles.activeCall}><PhoneOff size={28} /></ControlButton>
+          <ControlButton onClick={toggleMic} style={styles.toggleBtn}>{micOn ? <Mic size={24} /> : <MicOff size={24} />}</ControlButton>
+          <ControlButton onClick={toggleCamera} style={styles.toggleBtn}>{cameraOn ? <Video size={24} /> : <VideoOff size={24} />}</ControlButton>
+          <ControlButton style={styles.toggleBtn}><Volume2 size={24} /></ControlButton>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PeerVideo({ stream }) {
+  const videoRef = useRef();
+
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.muted = false;
+    }
+  }, [stream]);
+
+  return (
+    <div style={{ position: "relative", borderRadius: "12px", overflow: "hidden", boxShadow: "0 2px 10px rgba(0,0,0,0.5)" }}>
+      <video ref={videoRef} autoPlay playsInline style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "12px" }} />
+    </div>
+  );
+}
+
+function ControlButton({ children, onClick, style }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      style={{ ...style, width: "60px", height: "60px", borderRadius: "50%", display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer", transform: hover ? "scale(1.1)" : "scale(1)", transition: "all 0.2s" }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      {children}
+    </button>
+  );
+}
+
+export default App;
+ 
+
+// server.js
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const cors = require("cors");
+
+const app = express();
+app.use(cors());
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: "*" },
+});
+
+// Rooms en mémoire
+const rooms = {}; // { roomId: [socketId1, socketId2, ...] }
+
+io.on("connection", (socket) => {
+  console.log("✅ Utilisateur connecté:", socket.id);
+
+  // Rejoindre une room
+  socket.on("join-room", ({ roomId }) => {
+    if (!rooms[roomId]) rooms[roomId] = [];
+    rooms[roomId].push(socket.id);
+    socket.join(roomId);
+    console.log(`Utilisateur ${socket.id} a rejoint la room ${roomId}`);
+
+    // Informer les autres participants
+    socket.to(roomId).emit("user-joined", socket.id);
+  });
+
+  // Quitter une room
+  socket.on("leave-room", ({ roomId }) => {
+    if (rooms[roomId]) {
+      rooms[roomId] = rooms[roomId].filter(id => id !== socket.id);
+      socket.to(roomId).emit("user-left", socket.id);
+      if (rooms[roomId].length === 0) delete rooms[roomId];
+    }
+  });
+
+  // Signaling WebRTC
+  socket.on("offer", ({ offer, to }) => {
+    io.to(to).emit("offer", { offer, from: socket.id });
+  });
+
+  socket.on("answer", ({ answer, to }) => {
+    io.to(to).emit("answer", { answer, from: socket.id });
+  });
+
+  socket.on("ice-candidate", ({ candidate, to }) => {
+    io.to(to).emit("ice-candidate", { candidate, from: socket.id });
+  });
+
+  // Déconnexion
+  socket.on("disconnect", () => {
+    console.log("❌ Utilisateur déconnecté:", socket.id);
+    for (const roomId in rooms) {
+      rooms[roomId] = rooms[roomId].filter(id => id !== socket.id);
+      socket.to(roomId).emit("user-left", socket.id);
+      if (rooms[roomId].length === 0) delete rooms[roomId];
+    }
+  });
+});
+
+server.listen(5000, () => {
+  console.log("🚀 Serveur multi-room en écoute sur http://localhost:5000");
+});

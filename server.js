@@ -20,23 +20,16 @@ const {
 const { handleCountNotification } = require('./controllers/notificationController');
 const { handleCountFriendRequest } = require('./controllers/friendRequestController');
 const { handleCountMessage } = require('./controllers/messageController');
-<<<<<<< HEAD
 const { sendPushNotification } = require("./controllers/pushController");
-
-
-=======
->>>>>>> 182b50fe56fd7cc64e0e4fe6a35f82d237f11629
 
 // Initialisation
 const app = express();
 app.use(cors({ origin: "*", methods: ["GET", "POST"] }));
-app.use(express.json());
+app.use(express.json()); 
 app.use(morgan("dev")); 
-
 
 app.use("/uploads", express.static("uploads"));
 app.use("/api/chat", require("./routes/chatUpload"));
-
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
@@ -55,11 +48,9 @@ app.get("/", (req, res) => {
 app.post("/count-notification", handleCountNotification(io, users));
 app.post("/count-friend-request", handleCountFriendRequest(io, users));
 app.post("/count-message", handleCountMessage(io, users));
-<<<<<<< HEAD
+
 // Route pour envoi push
 app.post("/send-push", sendPushNotification);
-=======
->>>>>>> 182b50fe56fd7cc64e0e4fe6a35f82d237f11629
 
 // WebSocket
 io.on("connection", (socket) => {
@@ -71,9 +62,7 @@ io.on("connection", (socket) => {
     users[userId] = socket.id;
 
     try {
-      await axios.post("https://api.rudless.com/api/surho/update/en-ligne", {
-        user_id: userId,
-      });
+      await axios.post("https://api.rudless.com/api/surho/update/en-ligne", { user_id: userId });
       console.log(`User ${userId} marqué en ligne`);
     } catch (error) {
       console.error(`Erreur mise en ligne user ${userId}:`, error.message);
@@ -87,7 +76,6 @@ io.on("connection", (socket) => {
     console.log(`Déconnexion : ${socket.id}`);
     let disconnectedUserId = null;
 
-    // Retirer des users
     for (const userId in users) {
       if (users[userId] === socket.id) {
         disconnectedUserId = userId;
@@ -97,25 +85,17 @@ io.on("connection", (socket) => {
       }
     }
 
-    // Retirer des rooms
     for (const roomId in rooms) {
       if (rooms[roomId][socket.id]) {
         delete rooms[roomId][socket.id];
-
         socket.to(roomId).emit("user-left", socket.id);
-
         if (Object.keys(rooms[roomId]).length === 0) delete rooms[roomId];
       }
     }
 
-    
-    // Marquer hors ligne
     if (disconnectedUserId) {
       try {
-        await axios.post(
-          "https://api.rudless.com/api/surho/update/hors-ligne",
-          { user_id: disconnectedUserId }
-        );
+        await axios.post("https://api.rudless.com/api/surho/update/hors-ligne", { user_id: disconnectedUserId });
         console.log(`User ${disconnectedUserId} marqué hors ligne`);
       } catch (error) {
         console.error(`Erreur mise hors ligne user ${disconnectedUserId}:`, error.message);
@@ -135,7 +115,6 @@ io.on("connection", (socket) => {
   registerUnreadMessagesHandlers(io, socket, users);
 });
 
-// Lancement
 server.listen(PORT, () => {
   console.log(`Serveur Socket.IO prêt sur le port ${PORT}`);
 });

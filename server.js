@@ -20,9 +20,12 @@ const {
 const { handleCountNotification } = require('./controllers/notificationController');
 const { handleCountFriendRequest } = require('./controllers/friendRequestController');
 const { handleCountMessage } = require('./controllers/messageController');
+<<<<<<< HEAD
 const { sendPushNotification } = require("./controllers/pushController");
 
 
+=======
+>>>>>>> 182b50fe56fd7cc64e0e4fe6a35f82d237f11629
 
 // Initialisation
 const app = express();
@@ -52,8 +55,11 @@ app.get("/", (req, res) => {
 app.post("/count-notification", handleCountNotification(io, users));
 app.post("/count-friend-request", handleCountFriendRequest(io, users));
 app.post("/count-message", handleCountMessage(io, users));
+<<<<<<< HEAD
 // Route pour envoi push
 app.post("/send-push", sendPushNotification);
+=======
+>>>>>>> 182b50fe56fd7cc64e0e4fe6a35f82d237f11629
 
 // WebSocket
 io.on("connection", (socket) => {

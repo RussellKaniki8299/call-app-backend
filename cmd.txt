@@ -1,3 +1,7 @@
 git add .
+<<<<<<< HEAD
 git commit -m "Server complet : Appels & Lives & Push"
+=======
+git commit -m "Server complet : Appels & Lives"
+>>>>>>> 182b50fe56fd7cc64e0e4fe6a35f82d237f11629
 git push origin main

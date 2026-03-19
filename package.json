@@ -18,7 +18,10 @@
     "express": "^5.1.0",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
+<<<<<<< HEAD
     "node-fetch": "^3.3.2",
+=======
+>>>>>>> 182b50fe56fd7cc64e0e4fe6a35f82d237f11629
     "nodemon": "^3.1.10",
     "socket.io": "^4.8.1"
   }

@@ -17,12 +17,19 @@ const sendPushNotification = async (req, res) => {
     });
   }
 
-  const pushTokens = tokens && Array.isArray(tokens)
+  const pushTokens = Array.isArray(tokens) && tokens.length > 0
     ? tokens
-    : [token];
+    : token
+    ? [token]
+    : [];
+
+  if (pushTokens.length === 0) {
+    return res.status(400).json({
+      error: "Aucun token valide fourni",
+    });
+  }
 
   const messages = pushTokens.map((tk) => {
-    // Construire objet message
     const msg = {
       to: tk,
       sound: "default",
@@ -33,7 +40,7 @@ const sendPushNotification = async (req, res) => {
       data: data || {},
     };
 
-    // Ajouter categoryId uniquement si défini et non null
+    // Ajouter categoryId uniquement si défini
     if (categoryId) msg.categoryId = categoryId;
 
     // Ajouter avatar uniquement si défini
@@ -53,11 +60,10 @@ const sendPushNotification = async (req, res) => {
 
     // Gestion erreurs tokens
     const tickets = response.data.data || [];
-
     tickets.forEach((ticket, index) => {
       if (ticket.status === "error") {
         console.log("Token invalide:", pushTokens[index], ticket.details);
-        // ici tu peux appeler Laravel pour supprimer le token
+        // ici tu peux appeler Laravel pour supprimer le token si nécessaire
       }
     });
 

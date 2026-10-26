@@ -4,7 +4,7 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const morgan = require("morgan");
 const axios = require("axios");
-const { SECRET_KEY, PORT } = require("./config");
+const { SECRET_KEY, PORT } = require("./src/config");
 
 const {
   registerCallHandlers,
